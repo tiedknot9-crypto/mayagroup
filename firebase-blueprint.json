@@ -1,0 +1,108 @@
+{
+  "entities": {
+    "Institution": {
+      "title": "Institution Settings",
+      "description": "Configuration metadata for the institution",
+      "type": "object",
+      "properties": {
+        "institution_name": { "type": "string" },
+        "address": { "type": "string" },
+        "contact_number": { "type": "string" },
+        "logo_url": { "type": "string" },
+        "available_branches": { "type": "array" },
+        "available_semesters": { "type": "array" },
+        "available_sessions": { "type": "array" }
+      }
+    },
+    "Course": {
+      "title": "Fee Plan / Course",
+      "description": "Educational course with a fee structure",
+      "type": "object",
+      "properties": {
+        "course_name": { "type": "string" },
+        "frequency": { "type": "string", "enum": ["Annual", "Semester", "Monthly"] },
+        "total_amount": { "type": "number" }
+      },
+      "required": ["course_name", "frequency"]
+    },
+    "FeeHead": {
+      "title": "Fee Component",
+      "description": "Specfic fee item within a course",
+      "type": "object",
+      "properties": {
+        "course_id": { "type": "string", "format": "uuid" },
+        "name": { "type": "string" },
+        "amount": { "type": "number" },
+        "type": { "type": "string" }
+      }
+    },
+    "Student": {
+      "title": "Student Record",
+      "description": "Enrolled student details",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "parent_name": { "type": "string" },
+        "roll_number": { "type": "string" },
+        "course_id": { "type": "string", "format": "uuid" },
+        "branch": { "type": "string" },
+        "semester": { "type": "string" },
+        "session_id": { "type": "string" },
+        "phone": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "enrollment_date": { "type": "string", "format": "date" }
+      }
+    },
+    "Payment": {
+      "title": "Fee Transaction",
+      "description": "Records of fee payments made by students",
+      "type": "object",
+      "properties": {
+        "student_id": { "type": "string", "format": "uuid" },
+        "amount": { "type": "number" },
+        "date": { "type": "string", "format": "date" },
+        "time": { "type": "string" },
+        "payment_method": { "type": "string" },
+        "receipt_number": { "type": "string" },
+        "transaction_id": { "type": "string" },
+        "remarks": { "type": "string" },
+        "fee_head_ids": { "type": "array" },
+        "collected_by": { "type": "string" }
+      }
+    },
+    "Accountant": {
+      "title": "Accountant / Staff",
+      "description": "Staff members with access to the system",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "user_id": { "type": "string" },
+        "password": { "type": "string" },
+        "role": { "type": "string" },
+        "phone": { "type": "string" }
+      }
+    }
+  },
+  "firestore": {
+    "settings": {
+      "schema": "Institution",
+      "description": "Global application configuration"
+    },
+    "courses": {
+      "schema": "Course",
+      "description": "List of available educational programs"
+    },
+    "students": {
+      "schema": "Student",
+      "description": "Main student directory"
+    },
+    "payments": {
+      "schema": "Payment",
+      "description": "Ledger of all financial transactions"
+    },
+    "accountants": {
+      "schema": "Accountant",
+      "description": "System users and staff"
+    }
+  }
+}

@@ -1,0 +1,52 @@
+@import "tailwindcss";
+
+@layer base {
+  body {
+    @apply antialiased text-slate-800 bg-white;
+    user-select: none;
+    -webkit-user-select: none;
+    transition: filter 0.3s ease;
+  }
+
+  body.privacy-blur {
+    filter: blur(40px);
+    pointer-events: none;
+  }
+}
+
+@media print {
+  body {
+    display: none !important;
+  }
+  
+  html::after {
+    content: "SECURITY RESTRICTION: PRINTING PROHIBITED BY DCFEEPAY CLOUD";
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    font-family: sans-serif;
+    font-weight: bold;
+    font-size: 24px;
+    color: red;
+  }
+}
+
+@layer utilities {
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    @apply bg-slate-200 rounded-full;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    @apply bg-slate-300;
+  }
+}
