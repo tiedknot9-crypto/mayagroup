@@ -112,6 +112,7 @@ export const supabaseService = {
           address: settingsData?.address || '',
           phone: settingsData?.contact_number || '',
           logo: settingsData?.logo_url || undefined,
+          updatedAt: settingsData?.updated_at || undefined,
         },
         masters: {
           branches: settingsData?.available_branches || [],
@@ -123,6 +124,7 @@ export const supabaseService = {
           name: course.course_name,
           frequency: course.frequency as 'Semester' | 'Yearly',
           totalAmount: Number(course.total_amount),
+          updatedAt: course.updated_at || undefined,
           components: (course.fee_heads || []).map((head: any) => ({
             id: head.id,
             name: head.name,
@@ -141,6 +143,7 @@ export const supabaseService = {
           phone: s.phone || '',
           email: s.email || '',
           enrollmentDate: s.enrollment_date || new Date().toISOString(),
+          updatedAt: s.updated_at || undefined,
         })),
         transactions: (paymentsData || []).map(p => ({
           id: p.id,
@@ -158,6 +161,7 @@ export const supabaseService = {
           isEdited: p.is_edited || false,
           editedBy: p.edited_by || '',
           editReason: p.edit_reason || '',
+          updatedAt: p.updated_at || undefined,
         })),
         staff: (staffData || []).map(s => ({
           id: s.user_id,
@@ -165,6 +169,7 @@ export const supabaseService = {
           role: s.role || 'Staff',
           phone: s.phone || '',
           pin: s.password,
+          updatedAt: s.updated_at || undefined,
         })),
         hasSeeded: true
       };
@@ -199,6 +204,7 @@ export const supabaseService = {
       phone: student.phone,
       email: student.email,
       enrollment_date: student.enrollmentDate,
+      updated_at: student.updatedAt || new Date().toISOString(),
     }, { onConflict: 'roll_number' });
 
     if (error) {
@@ -235,6 +241,7 @@ export const supabaseService = {
       is_edited: txn.isEdited,
       edited_by: txn.editedBy,
       edit_reason: txn.editReason,
+      updated_at: txn.updatedAt || new Date().toISOString(),
     }, { onConflict: 'receipt_number' });
 
     if (error) {
@@ -293,6 +300,7 @@ export const supabaseService = {
         phone: s.phone,
         email: s.email,
         enrollment_date: s.enrollmentDate,
+        updated_at: s.updatedAt || new Date().toISOString(),
       });
     }
 
@@ -340,6 +348,7 @@ export const supabaseService = {
           is_edited: txn.isEdited,
           edited_by: txn.editedBy,
           edit_reason: txn.editReason,
+          updated_at: txn.updatedAt || new Date().toISOString(),
         });
       } catch (e) {
         console.error('Error processing transaction for bulk save:', txn, e);
@@ -414,6 +423,7 @@ export const supabaseService = {
       available_branches: masters.branches,
       available_semesters: masters.semesters,
       available_sessions: masters.sessions,
+      updated_at: institution.updatedAt || new Date().toISOString(),
     };
 
     if (existing) {
@@ -427,7 +437,8 @@ export const supabaseService = {
     const { data: course, error: cError } = await supabase.from('courses').upsert({
       course_name: plan.name,
       frequency: plan.frequency,
-      total_amount: plan.totalAmount
+      total_amount: plan.totalAmount,
+      updated_at: plan.updatedAt || new Date().toISOString(),
     }, { onConflict: 'course_name' }).select().single();
 
     if (cError || !course) {

@@ -597,13 +597,17 @@ export default function SettingsView({ data, setData }: SettingsProps) {
               <div className="p-8 bg-emerald-50 rounded-[32px] border border-emerald-100 space-y-4">
                  <h4 className="font-black text-emerald-800 uppercase tracking-tight">Cloud Migration (PUSH)</h4>
                  <p className="text-xs text-emerald-600 font-medium leading-relaxed">
-                    Uploads all your local students and payment history to the DCfeePay Cloud. Use this if you have data that isn't appearing on other devices.
+                    Uploads all your local students and payment history to the MAYA Fee System Cloud. Use this if you have data that isn't appearing on other devices.
                  </p>
                  <button 
                   disabled={isResetting}
                   onClick={async () => {
                     if (!window.confirm('Push all local data to Supabase? This will merge local records with the cloud database.')) return;
                     setIsResetting(true);
+                    
+                    // Trigger the write lock in App.tsx to prevent background sync for 30s
+                    setData(prev => ({ ...prev }));
+                    
                     try {
                       console.log('Starting cloud push...');
                       // Push Students
@@ -622,7 +626,7 @@ export default function SettingsView({ data, setData }: SettingsProps) {
                       setTimeout(() => setShowSuccess(false), 3000);
                     } catch (err: any) {
                       console.error('Cloud push failed:', err);
-                      alert('Cloud Push Failed: ' + (err.message || 'Unknown error. Check RLS policies in Database tab.'));
+                      alert('Cloud Push Failed: ' + (err.message || 'Unknown error. Check RLS policies if issue persists.'));
                     } finally {
                       setIsResetting(false);
                     }

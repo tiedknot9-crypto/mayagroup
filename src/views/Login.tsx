@@ -29,8 +29,8 @@ export default function Login({ onLogin, institution }: LoginProps) {
           </div>
           <h2 className="text-xl font-bold uppercase tracking-tight text-slate-800 text-center">{institution.name}</h2>
           <div className="mt-2 text-center">
-            <span className="text-emerald-600 font-bold">DCfeePay</span>
-            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1 text-center">Digital Communique Private Limited</p>
+            <span className="text-emerald-600 font-bold">MAYA Fee System</span>
+            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1 text-center">MAYA Group System</p>
           </div>
         </div>
 

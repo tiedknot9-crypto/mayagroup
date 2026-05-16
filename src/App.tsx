@@ -60,9 +60,9 @@ export default function App() {
   const [lastLocalWrite, setLastLocalWrite] = useState<number>(0);
 
   const loadFromDb = useCallback(async (showIndicator = true) => {
-    // Sync Guard: If we JUST wrote data locally (in the last 10s), 
+    // Sync Guard: If we JUST wrote data locally (in the last 30s), 
     // ignore background syncs to prevent overwriting local state with stale cloud data.
-    if (!showIndicator && Date.now() - lastLocalWrite < 10000) {
+    if (!showIndicator && Date.now() - lastLocalWrite < 30000) {
       console.log('[Supabase] Sync ignored: Protected by local write lock.');
       return;
     }
@@ -92,48 +92,52 @@ export default function App() {
         console.log(`[Supabase] Cloud Fetch: ${dbData.students.length} students, ${dbData.transactions.length} transactions, ${dbData.feePlans.length} plans.`);
         
         setData(prevData => {
-          // Refined sync: Merge students, transactions, and plans using business keys
-          
-          // 1. Merge Students
-          const mergedStudents = [...dbData.students];
-          const dbRollNumbers = new Set(dbData.students.map(s => s.rollNumber.toUpperCase()));
-          const dbStudentIds = new Set(dbData.students.map(s => s.id));
-          
-          prevData.students.forEach(localStudent => {
-            const rollKey = localStudent.rollNumber.toUpperCase();
-            // Only keep local student if they are truly unique (not in DB by ID or Roll Number)
-            if (!dbStudentIds.has(localStudent.id) && rollKey && !dbRollNumbers.has(rollKey)) {
-              mergedStudents.push(localStudent);
-            }
-          });
+          // Conflict-Aware Merge: Use updatedAt to decide which record wins.
+          const mergeRecord = <T extends { id: string; updatedAt?: string }>(local: T, remote: T): T => {
+            if (!local.updatedAt) return remote;
+            if (!remote.updatedAt) return local;
+            return new Date(local.updatedAt) >= new Date(remote.updatedAt) ? local : remote;
+          };
 
-          // 2. Merge Transactions
-          const mergedTxns = [...dbData.transactions];
-          const dbTxnReceipts = new Set(dbData.transactions.map(t => t.receiptNumber.toUpperCase()));
-          const dbTxnIds = new Set(dbData.transactions.map(t => t.id));
-          
-          prevData.transactions.forEach(localTxn => {
-            if (!dbTxnIds.has(localTxn.id) && !dbTxnReceipts.has(localTxn.receiptNumber.toUpperCase())) {
-              mergedTxns.push(localTxn);
-            }
+          const studentMap = new Map<string, Student>();
+          dbData.students.forEach(s => studentMap.set(s.id, s));
+          prevData.students.forEach(local => {
+            const remote = studentMap.get(local.id);
+            studentMap.set(local.id, remote ? mergeRecord(local, remote) : local);
           });
+          const mergedStudents = Array.from(studentMap.values());
 
-          // 3. Merge Fee Plans (Courses)
-          const mergedPlans = [...dbData.feePlans];
-          const dbPlanNames = new Set(dbData.feePlans.map(p => p.name.toUpperCase()));
-          const dbPlanIds = new Set(dbData.feePlans.map(p => p.id));
-          
-          prevData.feePlans.forEach(localPlan => {
-            if (!dbPlanIds.has(localPlan.id) && !dbPlanNames.has(localPlan.name.toUpperCase())) {
-              mergedPlans.push(localPlan);
-            }
+          const txnMap = new Map<string, Transaction>();
+          dbData.transactions.forEach(t => txnMap.set(t.id, t));
+          prevData.transactions.forEach(local => {
+            const remote = txnMap.get(local.id);
+            txnMap.set(local.id, remote ? mergeRecord(local, remote) : local);
           });
+          const mergedTxns = Array.from(txnMap.values());
+
+          const planMap = new Map<string, FeePlan>();
+          dbData.feePlans.forEach(p => planMap.set(p.id, p));
+          prevData.feePlans.forEach(local => {
+            const remote = planMap.get(local.id);
+            planMap.set(local.id, remote ? mergeRecord(local, remote) : local);
+          });
+          const mergedPlans = Array.from(planMap.values());
+
+          const staffMap = new Map<string, Staff>();
+          dbData.staff.forEach(s => staffMap.set(s.id, s));
+          prevData.staff.forEach(local => {
+            const remote = staffMap.get(local.id);
+            staffMap.set(local.id, remote ? mergeRecord(local, remote) : local);
+          });
+          const mergedStaff = Array.from(staffMap.values());
 
           const finalData = {
             ...dbData,
             students: mergedStudents,
             transactions: mergedTxns,
             feePlans: mergedPlans,
+            staff: mergedStaff,
+            institution: mergeRecord(prevData.institution as any, dbData.institution as any) as any,
             masters: dbData.masters.branches.length > 0 ? dbData.masters : prevData.masters
           };
 
@@ -246,7 +250,7 @@ export default function App() {
 
     const handleCopy = (e: ClipboardEvent) => {
       e.preventDefault();
-      alert('Content protected by DCfeePay Cloud Security');
+      alert('Content protected by MAYA Fee System Security');
     };
 
     const handleDragStart = (e: DragEvent) => {
@@ -255,9 +259,9 @@ export default function App() {
 
     const handleVisibilityChange = () => {
       if (document.hidden) {
-        document.title = 'DCfeePay Protected';
+        document.title = 'MAYA Protected';
       } else {
-        document.title = data.institution.name + ' | DCfeePay';
+        document.title = data.institution.name + ' | MAYA Fee System';
       }
     };
 
@@ -282,7 +286,21 @@ export default function App() {
 
   const updateDataWithLock = (updater: (prev: AppData) => AppData) => {
     setLastLocalWrite(Date.now());
-    setData(updater);
+    setData(prev => {
+      const newData = updater(prev);
+      
+      // Inject timestamps into updated records so sync knows which one is newer
+      const now = new Date().toISOString();
+      
+      return {
+        ...newData,
+        students: newData.students.map(s => ({ ...s, updatedAt: s.updatedAt || now })),
+        transactions: newData.transactions.map(t => ({ ...t, updatedAt: t.updatedAt || now })),
+        feePlans: newData.feePlans.map(p => ({ ...p, updatedAt: p.updatedAt || now })),
+        staff: newData.staff.map(s => ({ ...s, updatedAt: s.updatedAt || now })),
+        institution: { ...newData.institution, updatedAt: now }
+      };
+    });
   };
 
   const handleLogin = (staffId: string, pin: string) => {
@@ -309,7 +327,7 @@ export default function App() {
       <div className="h-screen flex flex-col items-center justify-center bg-slate-50 p-10 text-center">
         <div className="w-16 h-16 border-4 border-emerald-100 border-t-emerald-600 rounded-full animate-spin mb-4"></div>
         <p className="text-slate-400 font-black uppercase tracking-widest text-[10px]">Synchronizing Cloud Ledger...</p>
-        <p className="text-slate-300 text-xs mt-2 max-w-xs">Establishing secure connection to DCfeePay Global Database...</p>
+        <p className="text-slate-300 text-xs mt-2 max-w-xs">Establishing secure connection to MAYA Global Database...</p>
         
         <div className="mt-8 flex flex-col gap-3">
           <button 
@@ -410,8 +428,8 @@ export default function App() {
 
         <div className="p-4 mt-auto border-t border-slate-100">
           <div className="bg-slate-50 rounded-2xl p-4 mb-4">
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Pro Version</p>
-            <p className="text-xs font-bold text-emerald-600">EduPay v2.5.8</p>
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">System Version</p>
+            <p className="text-xs font-bold text-emerald-600">MAYA Fee System</p>
           </div>
           <button 
             onClick={handleLogout}
@@ -482,7 +500,7 @@ export default function App() {
               <div className="mt-20 flex items-center justify-center gap-4 text-slate-400 pb-10">
                  <div className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-full text-[10px] font-black uppercase tracking-widest shadow-sm">
                     <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></span>
-                    Certified Build • DCfeePay v2
+                    Certified Build • MAYA Fee System
                  </div>
               </div>
             </motion.div>

@@ -12,6 +12,7 @@ export interface FeePlan {
   frequency: 'Semester' | 'Yearly';
   components: FeeComponent[];
   totalAmount: number;
+  updatedAt?: string;
 }
 
 export interface Student {
@@ -26,6 +27,7 @@ export interface Student {
   phone: string;
   email: string;
   enrollmentDate: string;
+  updatedAt?: string;
 }
 
 export interface Transaction {
@@ -44,6 +46,7 @@ export interface Transaction {
   isEdited?: boolean;
   editedBy?: string;
   editReason?: string;
+  updatedAt?: string;
 }
 
 export interface InstitutionProfile {
@@ -51,6 +54,7 @@ export interface InstitutionProfile {
   address: string;
   phone: string;
   logo?: string;
+  updatedAt?: string;
 }
 
 export interface Staff {
@@ -59,6 +63,7 @@ export interface Staff {
   role: string;
   phone: string;
   pin: string;
+  updatedAt?: string;
 }
 
 export interface AppData {
