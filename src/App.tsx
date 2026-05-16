@@ -71,19 +71,47 @@ export default function App() {
       if (dbData) {
         console.log(`[Supabase] Sync successful: ${dbData.students.length} students, ${dbData.transactions.length} transactions fetched.`);
         
+        // Refined sync: Merge students and transactions to prevent data loss
+        // We prioritize DB records for records with the same ID, but keep local-only records
+        const mergedStudents = [...dbData.students];
+        const dbStudentIds = new Set(dbData.students.map(s => s.id));
+        
+        data.students.forEach(localStudent => {
+          if (!dbStudentIds.has(localStudent.id)) {
+            // Local student not yet in cloud - keep them
+            mergedStudents.push(localStudent);
+          }
+        });
+
+        const mergedTxns = [...dbData.transactions];
+        const dbTxnReceipts = new Set(dbData.transactions.map(t => t.receiptNumber));
+        
+        data.transactions.forEach(localTxn => {
+          if (!dbTxnReceipts.has(localTxn.receiptNumber)) {
+            // Local txn not yet in cloud - keep them
+            mergedTxns.push(localTxn);
+          }
+        });
+
+        const finalData = {
+          ...dbData,
+          students: mergedStudents,
+          transactions: mergedTxns
+        };
+
         // Detect if any table failed with 42501 (Empty results + log signature)
         // We look for the console error log signature or specific table patterns
         // Since fetchAppData returns partial data on error, we check if mission-critical tables are missing
         
         // Ensure default admin always exists and has the requested credentials
-        const adminIndex = dbData.staff.findIndex(s => s.id === 'admin');
+        const adminIndex = finalData.staff.findIndex(s => s.id === 'admin');
         if (adminIndex === -1) {
-          dbData.staff.push(INITIAL_DATA.staff[0]);
+          finalData.staff.push(INITIAL_DATA.staff[0]);
         } else {
           // Always ensure the main admin has the requested PIN
-          dbData.staff[adminIndex].pin = INITIAL_DATA.staff[0].pin;
+          finalData.staff[adminIndex].pin = INITIAL_DATA.staff[0].pin;
         }
-        setData(dbData);
+        setData(finalData);
         setDbStatus('connected');
         setLastSynced(new Date());
       } else {

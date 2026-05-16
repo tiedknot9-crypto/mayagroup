@@ -587,6 +587,45 @@ export default function SettingsView({ data, setData }: SettingsProps) {
            </div>
 
            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 relative z-10">
+              <div className="p-8 bg-emerald-50 rounded-[32px] border border-emerald-100 space-y-4">
+                 <h4 className="font-black text-emerald-800 uppercase tracking-tight">Cloud Migration (PUSH)</h4>
+                 <p className="text-xs text-emerald-600 font-medium leading-relaxed">
+                    Uploads all your local students and payment history to the DCfeePay Cloud. Use this if you have data that isn't appearing on other devices.
+                 </p>
+                 <button 
+                  disabled={isResetting}
+                  onClick={async () => {
+                    if (!window.confirm('Push all local data to Supabase? This will merge local records with the cloud database.')) return;
+                    setIsResetting(true);
+                    try {
+                      console.log('Starting cloud push...');
+                      // Push Students
+                      if (data.students.length > 0) {
+                        await supabaseService.bulkSaveStudents(data.students);
+                      }
+                      // Push Transactions
+                      if (data.transactions.length > 0) {
+                        await supabaseService.bulkSaveTransactions(data.transactions);
+                      }
+                      // Push Settings
+                      await supabaseService.updateSettings(data.institution, data.masters);
+                      
+                      alert(`Cloud Push Successful!\n\n- ${data.students.length} students synchronized\n- ${data.transactions.length} payments synchronized\n\nYour cloud ledger is now up to date.`);
+                      setShowSuccess(true);
+                      setTimeout(() => setShowSuccess(false), 3000);
+                    } catch (err: any) {
+                      console.error('Cloud push failed:', err);
+                      alert('Cloud Push Failed: ' + (err.message || 'Unknown error. Check RLS policies in Database tab.'));
+                    } finally {
+                      setIsResetting(false);
+                    }
+                  }}
+                  className="bg-emerald-600 text-white px-6 py-3 rounded-2xl font-bold text-xs uppercase tracking-widest hover:bg-emerald-700 transition-all active:scale-95 shadow-lg shadow-emerald-100"
+                 >
+                   {isResetting ? 'Uploading...' : 'Push All Local Data to Cloud'}
+                 </button>
+              </div>
+
               <div className="p-8 bg-slate-50 rounded-[32px] border border-slate-100 space-y-4">
                  <h4 className="font-black text-slate-800 uppercase tracking-tight">Purge Sample Data</h4>
                  <p className="text-xs text-slate-500 font-medium leading-relaxed">
