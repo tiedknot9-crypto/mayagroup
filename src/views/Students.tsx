@@ -343,13 +343,34 @@ export default function Students({ data, setData }: StudentsProps) {
                     <button 
                       onClick={async () => {
                         if (window.confirm(`Are you sure you want to delete ${student.name}? This will also delete all their payment records.`)) {
-                          setData(prev => ({
-                            ...prev,
-                            students: prev.students.filter(s => s.id !== student.id),
-                            transactions: prev.transactions.filter(t => t.studentId !== student.id)
-                          }));
-                          // Delete from Supabase
-                          await supabase.from('students').delete().eq('roll_number', student.rollNumber);
+                          try {
+                            // 1. Delete payments from Supabase first
+                            const { error: pError } = await supabase
+                              .from('payments')
+                              .delete()
+                              .eq('student_id', student.id);
+                            
+                            if (pError) throw new Error(`Failed to clear payments: ${pError.message}`);
+
+                            // 2. Delete student record
+                            const { error: sError } = await supabase
+                              .from('students')
+                              .delete()
+                              .eq('id', student.id);
+                            
+                            if (sError) throw new Error(`Failed to remove student: ${sError.message}`);
+
+                            // 3. Update local state
+                            setData(prev => ({
+                              ...prev,
+                              students: prev.students.filter(s => s.id !== student.id),
+                              transactions: prev.transactions.filter(t => t.studentId !== student.id)
+                            }));
+                            console.log('[Supabase] Student and payments purged successfully');
+                          } catch (err: any) {
+                            console.error('Purge error:', err);
+                            alert('Cloud sync failed: ' + err.message + '\n\nPlease try again or use "System Audit" in Settings.');
+                          }
                         }
                       }}
                       className="text-slate-300 hover:text-red-500 transition-colors p-2 hover:bg-red-50 rounded-xl"

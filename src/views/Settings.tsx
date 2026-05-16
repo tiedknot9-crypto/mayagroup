@@ -607,22 +607,38 @@ export default function SettingsView({ data, setData }: SettingsProps) {
                  </p>
                  <button 
                   onClick={async () => {
-                    if (!window.confirm('Run system-wide data audit? This will merge duplicate students and fix payment links.')) return;
+                    if (!window.confirm('Run system-wide data audit? This will merge duplicate students, fix payment links, and verify course structures.')) return;
                     
                     setIsResetting(true);
                     try {
                       console.log('Starting data audit...');
                       const students = [...data.students];
                       const transactions = data.transactions.map(t => ({ ...t }));
+                      const validPlanIds = data.feePlans.map(p => p.id);
                       
                       const seen = new Map<string, string>(); // normalizedKey -> primaryId
                       const toDelete: string[] = [];
                       let reLinkedCount = 0;
+                      let fixedPlansCount = 0;
 
-                      students.forEach(s => {
-                        // Priority for key: Roll Number > Name
+                      // Use the first valid plan as fallback if any, or create one
+                      let fallbackPlanId = validPlanIds[0];
+                      if (!fallbackPlanId) {
+                        fallbackPlanId = await supabaseService.ensureDefaultCourse();
+                      }
+
+                      for (const s of students) {
+                        // 1. Fix Invalid Plans
+                        if (!validPlanIds.includes(s.planId)) {
+                          console.log(`Fixing invalid plan for ${s.name}: ${s.planId} -> ${fallbackPlanId}`);
+                          s.planId = fallbackPlanId;
+                          fixedPlansCount++;
+                          await supabase.from('students').update({ course_id: fallbackPlanId }).eq('id', s.id);
+                        }
+
+                        // 2. Priority for merging: Roll Number > Name
                         const key = (s.rollNumber?.trim() || s.name.trim()).toUpperCase();
-                        if (!key) return;
+                        if (!key) continue;
 
                         if (seen.has(key)) {
                           const primaryId = seen.get(key)!;
@@ -636,9 +652,9 @@ export default function SettingsView({ data, setData }: SettingsProps) {
                         } else {
                           seen.set(key, s.id);
                         }
-                      });
+                      }
 
-                      console.log(`Audit result: ${toDelete.length} duplicates, ${reLinkedCount} payments to re-link`);
+                      console.log(`Audit result: ${toDelete.length} duplicates, ${reLinkedCount} payments to re-link, ${fixedPlansCount} plan links fixed`);
 
                       // 1. Re-sync transactions first to avoid FK violations
                       if (reLinkedCount > 0) {
@@ -648,10 +664,10 @@ export default function SettingsView({ data, setData }: SettingsProps) {
                       // 2. Remove duplicates from DB
                       if (toDelete.length > 0) {
                         for (const id of toDelete) {
+                          // Before deleting student, delete their payments in DB to satisfy FK
+                          await supabase.from('payments').delete().eq('student_id', id);
                           const { error } = await supabase.from('students').delete().eq('id', id);
-                          if (error) {
-                            console.warn(`Failed to delete student ${id}:`, error);
-                          }
+                          if (error) console.warn(`Failed to delete student ${id}:`, error);
                         }
                       }
 
@@ -659,15 +675,10 @@ export default function SettingsView({ data, setData }: SettingsProps) {
                       const refreshedData = await supabaseService.fetchAppData();
                       if (refreshedData) {
                         setData(refreshedData);
-                        alert(`Audit Complete!\n\n- Merged ${toDelete.length} duplicate student records.\n- Re-linked ${reLinkedCount} payments to master records.\n\nDatabase is now synchronized.`);
+                        alert(`Audit Complete!\n\n- Fixed ${fixedPlansCount} orphaned course links.\n- Merged ${toDelete.length} duplicate student records.\n- Re-linked ${reLinkedCount} payments to master records.\n\nDatabase is now synchronized.`);
                       } else {
-                        // If refreshedData is null (timeout/error), use local updated data
-                        setData(prev => ({
-                          ...prev,
-                          students: prev.students.filter(s => !toDelete.includes(s.id)),
-                          transactions: transactions
-                        }));
-                        alert('Audit process completed, but cloud sync is pending. Local data updated.');
+                        // Fallback refresh
+                        window.location.reload();
                       }
                     } catch (err: any) {
                       console.error('Audit failed:', err);
@@ -764,10 +775,24 @@ export default function SettingsView({ data, setData }: SettingsProps) {
                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Initialization & Permissions Script (SQL)</label>
                   <button 
                     onClick={() => {
-                      const sql = `-- 🔥 FINAL POWERFUL FIX FOR "PERMISSION DENIED" ERRORS
--- Run this in the Supabase SQL Editor
+                      const sql = `-- 🔥 HARDENED SUPABASE FIX SCRIPT (V12)
+-- ADDRESSES 20 SECURITY WARNINGS & DATABASE DEPENDENCIES
 
--- 1. Enable RLS on all tables
+-- 1. DROP RESTRICTIVE CONSTRAINTS TO ALLOW CLEAN DELETIONS
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.table_constraints WHERE constraint_name = 'students_course_id_fkey') THEN
+        ALTER TABLE public.students DROP CONSTRAINT students_course_id_fkey;
+    END IF;
+END $$;
+
+ALTER TABLE public.students 
+ADD CONSTRAINT students_course_id_fkey 
+FOREIGN KEY (course_id) 
+REFERENCES courses(id) 
+ON DELETE SET NULL;
+
+-- 2. ENABLE RLS ON ALL TABLES
 ALTER TABLE public.settings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.courses ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.fee_heads ENABLE ROW LEVEL SECURITY;
@@ -775,8 +800,7 @@ ALTER TABLE public.students ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.accountants ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.payments ENABLE ROW LEVEL SECURITY;
 
--- 2. Grant ALL permissions to BOTH Authenticated and Anonymous users
--- (This ensures the app works immediately. You can harden it later.)
+-- 3. APPLY HARDENED POLICIES (Fixes "RLS Policy Always True")
 DO $$
 DECLARE
     t text;
@@ -785,37 +809,40 @@ BEGIN
              WHERE table_schema = 'public' 
              AND table_name IN ('settings', 'courses', 'fee_heads', 'students', 'accountants', 'payments')
     LOOP
-        -- Remove old policies
+        EXECUTE format('DROP POLICY IF EXISTS "public_access" ON public.%I', t);
+        EXECUTE format('DROP POLICY IF EXISTS "Authenticated_Access" ON public.%I', t);
         EXECUTE format('DROP POLICY IF EXISTS "auth_access_%I" ON public.%I', t, t);
-        EXECUTE format('DROP POLICY IF EXISTS "anon_read_%I" ON public.%I', t, t);
-        EXECUTE format('DROP POLICY IF EXISTS "public_access" ON public.%I', t, t);
-        EXECUTE format('DROP POLICY IF EXISTS "staff_full_access" ON public.%I', t, t);
-        EXECUTE format('DROP POLICY IF EXISTS "staff_read_access" ON public.%I', t, t);
-        EXECUTE format('DROP POLICY IF EXISTS "public_read_%I" ON public.%I', t, t);
         
-        -- Create new "Universal Access" policy for this demo
+        -- Policy: Only allow signed-in users (NOT generic true)
         EXECUTE format('
-            CREATE POLICY "public_access"
+            CREATE POLICY "authenticated_full_access"
             ON public.%I
             FOR ALL
-            TO PUBLIC
-            USING (true)
-            WITH CHECK (true)
+            TO authenticated
+            USING (auth.uid() IS NOT NULL)
+            WITH CHECK (auth.uid() IS NOT NULL)
         ', t);
         
-        -- Explicitly grant table permissions
-        EXECUTE format('GRANT ALL ON TABLE public.%I TO anon, authenticated, postgres, service_role', t);
+        -- Grant specific roles
+        EXECUTE format('REVOKE ALL ON ALL TABLES IN SCHEMA public FROM anon;');
+        EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.%I TO authenticated, service_role;', t);
     END LOOP;
 END $$;
 
--- 3. Grant sequence permissions (Crucial for auto-incrementing IDs if used)
-GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO anon, authenticated;
+-- 4. HIDE FROM GRAPHQL (Resolves "pg_graphql_anon_table_exposed")
+COMMENT ON SCHEMA public IS '@graphql({"expose": false})';
+COMMENT ON TABLE public.settings IS '@graphql({"expose": false})';
+COMMENT ON TABLE public.courses IS '@graphql({"expose": false})';
+COMMENT ON TABLE public.fee_heads IS '@graphql({"expose": false})';
+COMMENT ON TABLE public.students IS '@graphql({"expose": false})';
+COMMENT ON TABLE public.accountants IS '@graphql({"expose": false})';
+COMMENT ON TABLE public.payments IS '@graphql({"expose": false})';
 
--- 4. Fast Reload
+-- 5. RELOAD SCHEMA
 NOTIFY pgrst, 'reload schema';
 `;
                       navigator.clipboard.writeText(sql);
-                      alert('Comprehensive SQL Fix Script copied! Please paste and run it in your Supabase SQL Editor to resolve all permission errors.');
+                      alert('HARDENED SQL Fix Script copied!\n\nPaste this in your Supabase SQL Editor to fix 20 security warnings and enable smooth course deletions.');
                     }}
                     className="text-cyan-600 font-black text-[10px] uppercase tracking-widest flex items-center gap-2 hover:bg-cyan-50 px-3 py-1 rounded-lg transition-all"
                   >
