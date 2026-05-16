@@ -19,6 +19,7 @@ export default function Payments({ data, setData, currentStaff }: PaymentsProps)
   const [importMode, setImportMode] = useState<'upload' | 'paste'>('upload');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [selectedTxn, setSelectedTxn] = useState<Transaction | null>(null);
+  const [editingTxnId, setEditingTxnId] = useState<string | null>(null);
   const [newTransaction, setNewTransaction] = useState<Partial<Transaction>>({
     date: new Date().toISOString().split('T')[0],
     studentId: '',
@@ -28,6 +29,19 @@ export default function Payments({ data, setData, currentStaff }: PaymentsProps)
     academicTerm: '',
     remarks: '',
   });
+
+  const resetForm = () => {
+    setNewTransaction({
+      date: new Date().toISOString().split('T')[0],
+      studentId: '',
+      transactionId: '',
+      amount: 0,
+      mode: 'UPI',
+      academicTerm: '',
+      remarks: '',
+    });
+    setEditingTxnId(null);
+  };
 
   const handlePrint = () => {
     window.print();
@@ -40,7 +54,7 @@ export default function Payments({ data, setData, currentStaff }: PaymentsProps)
     
     if (newTransaction.mode !== 'Cash' && newTransaction.transactionId) {
       const isDuplicate = data.transactions.some(t => 
-        t.mode !== 'Cash' && t.transactionId === newTransaction.transactionId
+        t.id !== editingTxnId && t.mode !== 'Cash' && t.transactionId === newTransaction.transactionId
       );
       
       if (isDuplicate) {
@@ -53,39 +67,39 @@ export default function Payments({ data, setData, currentStaff }: PaymentsProps)
       const student = data.students.find(s => s.id === newTransaction.studentId);
       const plan = data.feePlans.find(p => p.id === student?.planId);
       
+      const existingTxn = editingTxnId ? data.transactions.find(t => t.id === editingTxnId) : null;
+
       const transaction: Transaction = {
-        id: crypto.randomUUID(),
+        id: editingTxnId || crypto.randomUUID(),
         studentId: newTransaction.studentId!,
         amount: Number(newTransaction.amount),
-        date: newTransaction.date ? new Date(newTransaction.date).toISOString() : new Date().toISOString(),
-        time: new Date().toLocaleTimeString('en-US', { hour12: false }),
+        date: newTransaction.date ? new Date(newTransaction.date).toISOString() : (existingTxn?.date || new Date().toISOString()),
+        time: existingTxn?.time || new Date().toLocaleTimeString('en-US', { hour12: false }),
         mode: newTransaction.mode as PaymentMode,
         transactionId: newTransaction.mode === 'Cash' ? undefined : newTransaction.transactionId,
-        academicTerm: newTransaction.academicTerm || `Sem ${student?.semester || 'I'}`,
-        receiptNumber: `RC-${Date.now().toString().slice(-6)}`,
+        academicTerm: newTransaction.academicTerm || existingTxn?.academicTerm || `Sem ${student?.semester || 'I'}`,
+        receiptNumber: existingTxn?.receiptNumber || `RC-${Date.now().toString().slice(-6)}`,
         remarks: newTransaction.remarks || '',
-        feeHeadIds: plan?.components.map(c => c.id) || [],
-        collectedBy: currentStaff?.name || 'System',
+        feeHeadIds: plan?.components.map(c => c.id) || existingTxn?.feeHeadIds || [],
+        collectedBy: existingTxn?.collectedBy || currentStaff?.name || 'System',
+        isEdited: !!editingTxnId,
+        editedBy: editingTxnId ? (currentStaff?.name || 'Staff') : undefined,
+        editReason: editingTxnId ? 'Manual adjustment by staff' : undefined,
       };
 
       setData(prev => ({
         ...prev,
-        transactions: [...prev.transactions, transaction]
+        transactions: editingTxnId 
+          ? prev.transactions.map(t => t.id === editingTxnId ? transaction : t)
+          : [...prev.transactions, transaction]
       }));
 
       // Sync to Supabase
       await supabaseService.saveTransaction(transaction);
       
       setIsModalOpen(false);
-      setSelectedTxn(transaction); 
-      setNewTransaction({
-        studentId: '',
-        amount: 0,
-        mode: 'UPI',
-        academicTerm: '',
-        transactionId: '',
-        remarks: '',
-      });
+      if (!editingTxnId) setSelectedTxn(transaction); 
+      resetForm();
     }
   };
 
@@ -432,7 +446,10 @@ export default function Payments({ data, setData, currentStaff }: PaymentsProps)
             Bulk Import
           </button>
           <button 
-            onClick={() => setIsModalOpen(true)}
+            onClick={() => {
+              resetForm();
+              setIsModalOpen(true);
+            }}
             className="bg-emerald-600 text-white px-8 py-4 rounded-3xl font-bold shadow-xl shadow-emerald-200 hover:bg-emerald-700 transition-all active:scale-95 shrink-0"
           >
             Collect New Fee
@@ -452,7 +469,7 @@ export default function Payments({ data, setData, currentStaff }: PaymentsProps)
               <tr className="border-b border-slate-100">
                 <th className="px-8 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest">Receipt Date</th>
                 <th className="px-8 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest">Student</th>
-                <th className="px-8 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest">Transaction ID</th>
+                <th className="px-8 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest">Transaction Details</th>
                 <th className="px-8 py-5 text-right text-[10px] font-black text-slate-400 uppercase tracking-widest">Amount</th>
                 <th className="px-8 py-5 text-right text-[10px] font-black text-slate-400 uppercase tracking-widest">Action</th>
               </tr>
@@ -492,21 +509,48 @@ export default function Payments({ data, setData, currentStaff }: PaymentsProps)
                         </p>
                       </td>
                       <td className="px-8 py-5">
-                        {t.transactionId ? (
-                           <p className="text-[11px] font-mono font-black text-slate-700 bg-slate-100 px-2 py-1 rounded-md inline-block uppercase tracking-tighter">{t.transactionId}</p>
-                        ) : (
-                           <span className="text-[10px] font-black text-amber-600 bg-amber-50 px-2 py-0.5 rounded uppercase">Cash Payment</span>
-                        )}
+                        <div className="flex items-center gap-2">
+                          {t.transactionId ? (
+                             <p className="text-[11px] font-mono font-black text-slate-700 bg-slate-100 px-2 py-1 rounded-md inline-block uppercase tracking-tighter">{t.transactionId}</p>
+                          ) : (
+                             <span className="text-[10px] font-black text-amber-600 bg-amber-50 px-2 py-0.5 rounded uppercase">Cash</span>
+                          )}
+                          {t.isEdited && (
+                            <span className="bg-rose-50 text-rose-600 text-[8px] font-black px-1.5 py-0.5 rounded-full border border-rose-100 uppercase animate-pulse">Edited</span>
+                          )}
+                        </div>
+                        <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest mt-1">By: {t.collectedBy || 'Admin'}</p>
                       </td>
                       <td className="px-8 py-5 text-right font-black text-slate-900 text-base">₹{t.amount.toLocaleString()}</td>
-                      <td className="px-8 py-5 text-right flex items-center justify-end gap-2">
+                      <td className="px-8 py-5 text-right flex items-center justify-end gap-2 text-slate-400">
                          <button 
                           onClick={() => setSelectedTxn(t)}
-                          className="p-2 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-xl transition-all"
+                          title="Print Receipt"
+                          className="p-2 hover:text-emerald-600 hover:bg-emerald-50 rounded-xl transition-all"
                          >
                             <Printer size={18} />
                          </button>
                          <button 
+                          onClick={() => {
+                            setEditingTxnId(t.id);
+                            setNewTransaction({
+                              date: t.date.split('T')[0],
+                              studentId: t.studentId,
+                              transactionId: t.transactionId || '',
+                              amount: t.amount,
+                              mode: t.mode,
+                              academicTerm: t.academicTerm,
+                              remarks: t.remarks,
+                            });
+                            setIsModalOpen(true);
+                          }}
+                          title="Edit Transaction"
+                          className="p-2 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-all"
+                         >
+                            <FileText size={18} />
+                         </button>
+                         <button 
+                          title="Delete Transaction"
                           onClick={async () => {
                             if (window.confirm('Delete this payment record? This will restore the student balance.')) {
                               setData(prev => ({
@@ -556,12 +600,13 @@ export default function Payments({ data, setData, currentStaff }: PaymentsProps)
                    <button 
                      onClick={() => {
                         const student = data.students.find(s => s.id === selectedTxn.studentId);
-                        const text = `*Payment Receipt* from ${data.institution.name}\n\n*Student:* ${student?.name}\n*Receipt:* ${selectedTxn.receiptNumber}\n*Amount:* ₹${selectedTxn.amount}\n*Date:* ${new Date(selectedTxn.date).toLocaleDateString()}\n*Mode:* ${selectedTxn.mode}\n\nThank you!`;
-                        window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
+                        const inst = data.institution;
+                        const text = `*FEE PAYMENT SUCCESSFUL*\n\nDear *${student?.name}*,\nYour payment has been received successfully.\n\n*Institution:* ${inst.name}\n*Amount:* ₹${selectedTxn.amount.toLocaleString()}\n*Receipt No:* ${selectedTxn.receiptNumber}\n*Date:* ${new Date(selectedTxn.date).toLocaleDateString('en-GB')}\n*Mode:* ${selectedTxn.mode}\n\n_This is a computer-generated receipt._\nThank you for choosing ${inst.name}!`;
+                        window.open(`https://wa.me/${student?.phone ? student.phone.replace(/[^0-9]/g, '') : ''}?text=${encodeURIComponent(text)}`, '_blank');
                      }}
-                     className="flex items-center gap-2 bg-[#25D366] text-white px-6 py-2.5 rounded-xl font-bold text-sm shadow-lg shadow-emerald-100"
+                     className="flex items-center gap-2 bg-[#25D366] text-white px-6 py-2.5 rounded-xl font-bold text-sm shadow-lg shadow-emerald-100 hover:scale-105 transition-transform"
                    >
-                     <Send size={18} /> Send WhatsApp
+                     <MessageSquare size={18} /> WhatsApp Receipt
                    </button>
                    <button 
                     onClick={() => setSelectedTxn(null)}
@@ -810,101 +855,96 @@ export default function Payments({ data, setData, currentStaff }: PaymentsProps)
               className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
               onClick={() => setIsModalOpen(false)}
             />
-            <motion.div 
-              initial={{ opacity: 0, scale: 0.9, y: 20 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.9, y: 20 }}
-              className="bg-white rounded-[40px] shadow-2xl w-full max-w-xl relative z-10 flex flex-col max-h-[90vh]"
-            >
-              <div className="p-10 border-b border-slate-100 flex items-center justify-between bg-slate-50/30 shrink-0">
-                  <h3 className="text-3xl font-black text-slate-800 tracking-tight">Fee Collection</h3>
-                <button 
-                  onClick={() => setIsModalOpen(false)}
-                  className="p-3 bg-white text-slate-400 hover:text-slate-800 rounded-2xl shadow-sm transition-all"
-                >
-                  <X size={24} />
-                </button>
-              </div>
-
-              <form onSubmit={handleSavePayment} className="flex flex-col h-full overflow-hidden">
-                <div className="p-10 space-y-8 overflow-y-auto custom-scrollbar flex-1">
-                   <div className="grid grid-cols-2 gap-6">
-                    <div>
-                      <label className="block text-[10px] font-black text-slate-600 uppercase tracking-widest mb-3 ml-1">Receipt Date</label>
-                      <input 
-                        required
-                        type="date" 
-                        className="w-full bg-white border-2 border-slate-200 rounded-2xl px-6 py-4 outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 font-bold text-slate-800 shadow-sm"
-                        value={newTransaction.date}
-                        onChange={(e) => setNewTransaction({...newTransaction, date: e.target.value})}
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-[10px] font-black text-slate-600 uppercase tracking-widest mb-3 ml-1">Academic Term</label>
-                      <input 
-                        type="text" 
-                        placeholder="e.g. Sem IV" 
-                        className="w-full bg-white border-2 border-slate-200 rounded-2xl px-6 py-4 outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 font-bold text-slate-800 shadow-sm"
-                        value={newTransaction.academicTerm}
-                        onChange={(e) => setNewTransaction({...newTransaction, academicTerm: e.target.value})}
-                      />
-                    </div>
-                  </div>
-
+              <motion.div 
+                initial={{ opacity: 0, scale: 0.9, y: 20 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.9, y: 20 }}
+                className="bg-white rounded-[40px] shadow-2xl w-full max-w-xl relative z-10 flex flex-col max-h-[90vh]"
+              >
+                <div className="p-10 border-b border-slate-100 flex items-center justify-between bg-slate-50/30 shrink-0">
                   <div>
-                    <label className="block text-[10px] font-black text-slate-600 uppercase tracking-widest mb-3 ml-1">Student</label>
-                    <select 
-                      required
-                      className="w-full bg-white border-2 border-slate-200 rounded-2xl px-6 py-4 outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 font-bold text-slate-800 shadow-sm transition-all"
-                      value={newTransaction.studentId}
-                      onChange={(e) => setNewTransaction({...newTransaction, studentId: e.target.value})}
-                    >
-                      <option value="">Search student by name or roll number...</option>
-                      {data.students.map(s => <option key={s.id} value={s.id}>{s.name} - {s.rollNumber} ({s.branch} | Sem {s.semester})</option>)}
-                    </select>
-                    {newTransaction.studentId && (() => {
-                      const student = data.students.find(s => s.id === newTransaction.studentId || s.rollNumber === newTransaction.studentId);
-                      const plan = data.feePlans.find(p => p.id === student?.planId);
-                      const paid = data.transactions.filter(t => t.studentId === student?.id || t.studentId === student?.rollNumber).reduce((sum, t) => sum + t.amount, 0);
-                      return (
-                        <div className="mt-4 p-5 bg-slate-50 rounded-2xl border border-slate-100 space-y-4">
-                          <div className="flex justify-between items-start gap-4">
-                            <div className="flex-1">
-                              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Student Details</p>
-                              <p className="text-sm font-black text-slate-800 uppercase">{student?.name}</p>
-                              <div className="flex gap-2 mt-1">
-                                <span className="text-[10px] font-bold text-slate-500 bg-white px-2 py-0.5 rounded border border-slate-100 uppercase">{student?.branch}</span>
-                                <span className="text-[10px] font-bold text-slate-500 bg-white px-2 py-0.5 rounded border border-slate-100 uppercase">Sem {student?.semester}</span>
-                                <span className="text-[10px] font-bold text-slate-500 bg-white px-2 py-0.5 rounded border border-slate-100 uppercase">{student?.session}</span>
-                              </div>
-                            </div>
-                            <div className="text-right shrink-0">
-                               <p className="text-[10px] font-black text-rose-600 uppercase tracking-widest leading-none mb-1">Balance Due</p>
-                               <p className="text-xl font-black text-rose-700 italic">₹{((plan?.totalAmount || 0) - paid).toLocaleString()}</p>
-                            </div>
-                          </div>
-                          
-                          <div className="pt-3 border-t border-slate-200">
-                            <div className="flex justify-between items-end mb-2">
-                              <div>
-                                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Program / Course</p>
-                                <p className="text-xs font-black text-slate-900">{plan?.name || 'No Plan Assigned'}</p>
-                              </div>
-                            </div>
-                            <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2">Fee Breakdown</p>
-                            <div className="grid grid-cols-2 gap-x-6 gap-y-1">
-                              {plan?.components.map((c, ci) => (
-                                <div key={ci} className="flex justify-between text-[10px] font-bold">
-                                  <span className="text-slate-500">{c.name}</span>
-                                  <span className="text-slate-700">₹{c.amount.toLocaleString()}</span>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })()}
+                    <h3 className="text-3xl font-black text-slate-800 tracking-tight uppercase">
+                      {editingTxnId ? 'Edit Payment' : 'Fee Collection'}
+                    </h3>
+                    {editingTxnId && (
+                      <p className="text-[10px] font-black text-rose-500 uppercase tracking-widest mt-1">Changes will be logged in reports</p>
+                    )}
                   </div>
+                  <button 
+                    onClick={() => { 
+                      setIsModalOpen(false);
+                      resetForm();
+                    }}
+                    className="p-3 bg-white text-slate-400 hover:text-slate-800 rounded-2xl shadow-sm transition-all"
+                  >
+                    <X size={24} />
+                  </button>
+                </div>
+
+                <form onSubmit={handleSavePayment} className="flex flex-col h-full overflow-hidden">
+                  <div className="p-10 space-y-8 overflow-y-auto custom-scrollbar flex-1">
+                    <div className="grid grid-cols-2 gap-6">
+                      <div>
+                        <label className="block text-[10px] font-black text-slate-600 uppercase tracking-widest mb-3 ml-1">Receipt Date</label>
+                        <input 
+                          required
+                          type="date" 
+                          className="w-full bg-white border-2 border-slate-200 rounded-2xl px-6 py-4 outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 font-bold text-slate-800 shadow-sm"
+                          value={newTransaction.date}
+                          onChange={(e) => setNewTransaction({...newTransaction, date: e.target.value})}
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-black text-slate-600 uppercase tracking-widest mb-3 ml-1">Academic Term</label>
+                        <input 
+                          type="text" 
+                          placeholder="e.g. Sem IV" 
+                          className="w-full bg-white border-2 border-slate-200 rounded-2xl px-6 py-4 outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 font-bold text-slate-800 shadow-sm"
+                          value={newTransaction.academicTerm}
+                          onChange={(e) => setNewTransaction({...newTransaction, academicTerm: e.target.value})}
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-black text-slate-600 uppercase tracking-widest mb-3 ml-1">Student</label>
+                      <select 
+                        required
+                        disabled={!!editingTxnId}
+                        className={`w-full bg-white border-2 border-slate-200 rounded-2xl px-6 py-4 outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 font-bold text-slate-800 shadow-sm transition-all ${editingTxnId ? 'opacity-50 cursor-not-allowed bg-slate-50' : ''}`}
+                        value={newTransaction.studentId}
+                        onChange={(e) => setNewTransaction({...newTransaction, studentId: e.target.value})}
+                      >
+                        <option value="">Search student by name or roll number...</option>
+                        {data.students.map(s => <option key={s.id} value={s.id}>{s.name} - {s.rollNumber} ({s.branch} | Sem {s.semester})</option>)}
+                      </select>
+                      {newTransaction.studentId && (() => {
+                        const student = data.students.find(s => s.id === newTransaction.studentId || s.rollNumber === newTransaction.studentId);
+                        const plan = data.feePlans.find(p => p.id === student?.planId);
+                        const paid = data.transactions
+                          .filter(t => t.id !== editingTxnId && (t.studentId === student?.id || t.studentId === student?.rollNumber))
+                          .reduce((sum, t) => sum + t.amount, 0);
+                        return (
+                          <div className="mt-4 p-5 bg-slate-50 rounded-2xl border border-slate-100 space-y-4">
+                            <div className="flex justify-between items-start gap-4">
+                              <div className="flex-1">
+                                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Student Details</p>
+                                <p className="text-sm font-black text-slate-800 uppercase">{student?.name}</p>
+                                <div className="flex gap-2 mt-1">
+                                  <span className="text-[10px] font-bold text-slate-500 bg-white px-2 py-0.5 rounded border border-slate-100 uppercase">{student?.branch}</span>
+                                  <span className="text-[10px] font-bold text-slate-500 bg-white px-2 py-0.5 rounded border border-slate-100 uppercase">Sem {student?.semester}</span>
+                                  <span className="text-[10px] font-bold text-slate-500 bg-white px-2 py-0.5 rounded border border-slate-100 uppercase">{student?.session}</span>
+                                </div>
+                              </div>
+                              <div className="text-right shrink-0">
+                                 <p className="text-[10px] font-black text-rose-600 uppercase tracking-widest leading-none mb-1">Balance Due</p>
+                                 <p className="text-xl font-black text-rose-700 italic">₹{((plan?.totalAmount || 0) - paid).toLocaleString()}</p>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })()}
+                    </div>
 
                   <div>
                     <label className="block text-[10px] font-black text-slate-600 uppercase tracking-widest mb-3 ml-1">Transaction ID</label>
@@ -975,7 +1015,10 @@ export default function Payments({ data, setData, currentStaff }: PaymentsProps)
                 <div className="p-10 bg-slate-50 border-t border-slate-100 flex gap-4 shrink-0">
                   <button 
                     type="button" 
-                    onClick={() => setIsModalOpen(false)}
+                    onClick={() => {
+                      setIsModalOpen(false);
+                      resetForm();
+                    }}
                     className="flex-1 bg-white border-2 border-slate-100 text-slate-400 font-bold py-5 rounded-3xl hover:bg-slate-50 transition-all uppercase tracking-widest text-xs"
                   >
                     Discard
@@ -984,7 +1027,7 @@ export default function Payments({ data, setData, currentStaff }: PaymentsProps)
                     type="submit"
                     className="flex-1 bg-emerald-600 text-white font-bold py-5 rounded-3xl shadow-xl shadow-emerald-200 hover:bg-emerald-700 transition-all uppercase tracking-widest text-xs"
                   >
-                    Save Payment
+                    {editingTxnId ? 'Update Payment' : 'Save Payment'}
                   </button>
                 </div>
               </form>

@@ -165,14 +165,20 @@ export default function Dashboard({ data }: DashboardProps) {
                 const student = data.students.find(s => s.id === t.studentId);
                 return (
                   <div key={t.id} className="relative pl-0 border-b border-slate-50 pb-6 last:border-0">
-                    <div className="flex items-baseline justify-between mb-1">
+                    <div className="flex items-center gap-2 mb-1 flex-wrap">
                       <p className="text-lg font-black text-slate-900 uppercase tracking-tight">
-                        {student?.name || 'Unknown Student'} <span className="font-medium text-slate-500 lowercase italic ml-1">paid ₹{t.amount.toFixed(2)}</span>
+                        {student?.name || 'Unknown Student'} <span className="font-medium text-slate-500 lowercase italic ml-1">paid ₹{t.amount.toLocaleString()}</span>
                       </p>
+                      {t.isEdited && (
+                        <span className="bg-rose-50 text-rose-600 text-[8px] font-black px-1.5 py-0.5 rounded-full border border-rose-100 uppercase animate-pulse">Edited</span>
+                      )}
                     </div>
-                    <p className="text-sm text-slate-400 font-bold italic">
-                      {new Date(t.date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
-                    </p>
+                    <div className="flex items-center justify-between">
+                      <p className="text-sm text-slate-400 font-bold italic">
+                        {new Date(t.date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
+                      </p>
+                      <p className="text-[9px] font-black text-slate-300 uppercase tracking-widest">{t.mode}</p>
+                    </div>
                   </div>
                 )
               })

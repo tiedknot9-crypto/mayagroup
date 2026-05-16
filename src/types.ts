@@ -41,6 +41,9 @@ export interface Transaction {
   remarks?: string;
   feeHeadIds?: string[];
   collectedBy?: string;
+  isEdited?: boolean;
+  editedBy?: string;
+  editReason?: string;
 }
 
 export interface InstitutionProfile {

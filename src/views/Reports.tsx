@@ -90,7 +90,10 @@ export default function Reports({ data, setData }: ReportsProps) {
         'Branch': student?.branch || 'N/A',
         'Payment Mode': t.mode,
         'Transaction ID': t.transactionId || 'N/A',
-        'Amount': t.amount
+        'Amount': t.amount,
+        'Collected By': t.collectedBy || 'Admin',
+        'Is Edited': t.isEdited ? 'Yes' : 'No',
+        'Edited By': t.editedBy || 'N/A'
       };
     });
 
@@ -489,7 +492,7 @@ export default function Reports({ data, setData }: ReportsProps) {
                   <tr>
                      <th className="pb-6 text-[10px] font-black text-slate-400 uppercase tracking-widest">Receipt / Date</th>
                      <th className="pb-6 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">Student Payer</th>
-                     <th className="pb-6 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">Bank Ref (UTR/TXN)</th>
+                     <th className="pb-6 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">Reference / Collected By</th>
                      <th className="pb-6 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Amount</th>
                      <th className="pb-6 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right w-20">Actions</th>
                   </tr>
@@ -521,8 +524,16 @@ export default function Reports({ data, setData }: ReportsProps) {
                                  <p className="text-sm font-bold text-slate-700">{student?.name || 'N/A'}</p>
                                  <p className="text-[10px] font-black text-slate-400 uppercase">{student?.rollNumber || 'N/A'}</p>
                               </td>
-                              <td className="py-6 border-b border-slate-50 text-center font-mono text-xs uppercase text-slate-500">
-                                 {t.transactionId || '<CASH>'}
+                               <td className="py-6 border-b border-slate-50 text-center">
+                                 <div className="flex flex-col items-center gap-1">
+                                    <span className="font-mono text-xs uppercase text-slate-500">{t.transactionId || '<CASH>'}</span>
+                                    <div className="flex items-center gap-1.5">
+                                      <span className="text-[9px] font-black text-slate-400 uppercase tracking-tighter">By: {t.collectedBy || 'Admin'}</span>
+                                      {t.isEdited && (
+                                        <span className="bg-rose-50 text-rose-600 text-[8px] font-black px-1 py-0.5 rounded border border-rose-100 uppercase animate-pulse">Edited</span>
+                                      )}
+                                    </div>
+                                 </div>
                               </td>
                               <td className="py-6 border-b border-slate-50 text-right">
                                  <p className="text-base font-black text-emerald-600">₹{t.amount.toLocaleString()}</p>

@@ -126,6 +126,9 @@ export const supabaseService = {
           remarks: p.remarks || '',
           feeHeadIds: p.fee_head_ids || [],
           collectedBy: p.collected_by || '',
+          isEdited: p.is_edited || false,
+          editedBy: p.edited_by || '',
+          editReason: p.edit_reason || '',
         })),
         staff: (staffData || []).map(s => ({
           id: s.user_id,
@@ -200,6 +203,9 @@ export const supabaseService = {
       remarks: txn.remarks,
       fee_head_ids: txn.feeHeadIds,
       collected_by: txn.collectedBy,
+      is_edited: txn.isEdited,
+      edited_by: txn.editedBy,
+      edit_reason: txn.editReason,
     }, { onConflict: 'receipt_number' });
 
     if (error) {
@@ -292,6 +298,9 @@ export const supabaseService = {
         remarks: txn.remarks,
         fee_head_ids: txn.feeHeadIds,
         collected_by: txn.collectedBy,
+        is_edited: txn.isEdited,
+        edited_by: txn.editedBy,
+        edit_reason: txn.editReason,
       }));
 
     if (dbTxns.length === 0) return;
