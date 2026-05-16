@@ -55,7 +55,7 @@ export default function Reports({ data, setData }: ReportsProps) {
   };
 
   const filteredTransactions = useMemo(() => {
-    return data.transactions.filter(t => {
+    const filtered = data.transactions.filter(t => {
       const student = data.students.find(s => s.id === t.studentId || s.rollNumber === t.studentId);
       const studentName = student?.name?.toLowerCase() || '';
       const roll = student?.rollNumber?.toLowerCase() || '';
@@ -66,17 +66,17 @@ export default function Reports({ data, setData }: ReportsProps) {
       const matchesSearch = studentName.includes(search) || roll.includes(search) || txnId.includes(search) || receipt.includes(search);
       
       const tDate = new Date(t.date);
-      const matchesFrom = fromDate ? tDate >= new Date(fromDate) : true;
-      
-      let matchesTo = true;
-      if (toDate) {
-        const endOfDay = new Date(toDate);
-        endOfDay.setHours(23, 59, 59, 999);
-        matchesTo = tDate <= endOfDay;
-      }
+      const targetDateStr = !isNaN(tDate.getTime()) 
+        ? tDate.toISOString().split('T')[0] 
+        : (t.date || '').split('T')[0];
+
+      const matchesFrom = fromDate ? targetDateStr >= fromDate : true;
+      const matchesTo = toDate ? targetDateStr <= toDate : true;
 
       return matchesSearch && matchesFrom && matchesTo;
     });
+
+    return [...filtered].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
   }, [data.transactions, data.students, searchTerm, fromDate, toDate]);
 
   const downloadExcel = () => {

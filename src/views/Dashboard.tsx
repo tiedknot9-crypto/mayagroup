@@ -26,20 +26,27 @@ interface DashboardProps {
 
 export default function Dashboard({ data }: DashboardProps) {
   const stats = useMemo(() => {
-    const totalReceived = data.transactions.reduce((sum, t) => sum + t.amount, 0);
-    const totalRevenue = data.students.reduce((sum, s) => {
+    // 1. Calculate stats based strictly on ACTIVE students for consistency
+    let totalRevenue = 0;
+    let totalReceived = 0;
+    let outstandingDues = 0;
+
+    data.students.forEach(s => {
       const plan = data.feePlans.find(p => p.id === s.planId);
-      return sum + (plan?.totalAmount || 0);
-    }, 0);
-    
-    const outstandingDues = data.students.reduce((sum, s) => {
-      const plan = data.feePlans.find(p => p.id === s.planId);
+      const studentExp = plan?.totalAmount || 0;
       const studentPaid = data.transactions
-        .filter(t => t.studentId === s.id)
-        .reduce((sSum, t) => sSum + t.amount, 0);
-      return sum + Math.max(0, (plan?.totalAmount || 0) - studentPaid);
-    }, 0);
+        .filter(t => t.studentId === s.id || t.studentId === s.rollNumber)
+        .reduce((sum, t) => sum + t.amount, 0);
+      
+      totalRevenue += studentExp;
+      totalReceived += studentPaid;
+      outstandingDues += Math.max(0, studentExp - studentPaid);
+    });
     
+    // Global stats including orphans (money we have but student is deleted)
+    const globalTotalReceived = data.transactions.reduce((sum, t) => sum + t.amount, 0);
+    const orphanIncome = globalTotalReceived - totalReceived;
+
     return [
       { label: 'Total Revenue', value: `₹${totalRevenue.toLocaleString()}`, color: 'bg-indigo-50', icon: TrendingUp, iconColor: 'text-indigo-600' },
       { label: 'Total Received', value: `₹${totalReceived.toLocaleString()}`, color: 'bg-emerald-50', icon: HandCoins, iconColor: 'text-emerald-600' },
@@ -151,7 +158,10 @@ export default function Dashboard({ data }: DashboardProps) {
                   <p className="text-[10px] font-black uppercase tracking-[0.2em]">No Recent Transactions</p>
                </div>
             ) : (
-              data.transactions.slice(0, 10).map((t) => {
+              [...data.transactions]
+                .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+                .slice(0, 10)
+                .map((t) => {
                 const student = data.students.find(s => s.id === t.studentId);
                 return (
                   <div key={t.id} className="relative pl-0 border-b border-slate-50 pb-6 last:border-0">

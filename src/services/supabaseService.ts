@@ -9,7 +9,7 @@ export const supabaseService = {
         supabase.from('settings').select('*').single(),
         supabase.from('courses').select('*, fee_heads(*)'),
         supabase.from('students').select('*'),
-        supabase.from('payments').select('*'),
+        supabase.from('payments').select('*').order('date', { ascending: false }).order('time', { ascending: false }),
         supabase.from('accountants').select('*')
       ]);
 

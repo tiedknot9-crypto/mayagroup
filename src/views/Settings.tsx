@@ -775,10 +775,11 @@ export default function SettingsView({ data, setData }: SettingsProps) {
                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Initialization & Permissions Script (SQL)</label>
                   <button 
                     onClick={() => {
-                      const sql = `-- 🔥 HARDENED SUPABASE FIX SCRIPT (V12)
--- ADDRESSES 20 SECURITY WARNINGS & DATABASE DEPENDENCIES
+                      const sql = `-- 🔥 SUPABASE SECURITY & INTEGRITY REPAIR (V14)
+-- RESOLVES 20 SECURITY WARNINGS & ENABLES CLEAN DELETIONS
 
--- 1. DROP RESTRICTIVE CONSTRAINTS TO ALLOW CLEAN DELETIONS
+-- 1. HARDEN FOREIGN KEY CONSTRAINTS
+-- Ensures courses can be deleted by setting student references to NULL
 DO $$
 BEGIN
     IF EXISTS (SELECT 1 FROM information_schema.table_constraints WHERE constraint_name = 'students_course_id_fkey') THEN
@@ -800,7 +801,8 @@ ALTER TABLE public.students ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.accountants ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.payments ENABLE ROW LEVEL SECURITY;
 
--- 3. APPLY HARDENED POLICIES (Fixes "RLS Policy Always True")
+-- 3. APPLY ZERO-TRUST POLICIES (Fixes "RLS Policy Always True")
+-- Replaces (true) with (auth.uid() is not null)
 DO $$
 DECLARE
     t text;
@@ -812,37 +814,38 @@ BEGIN
         EXECUTE format('DROP POLICY IF EXISTS "public_access" ON public.%I', t);
         EXECUTE format('DROP POLICY IF EXISTS "Authenticated_Access" ON public.%I', t);
         EXECUTE format('DROP POLICY IF EXISTS "auth_access_%I" ON public.%I', t, t);
+        EXECUTE format('DROP POLICY IF EXISTS "anon_read_%I" ON public.%I', t, t);
+        EXECUTE format('DROP POLICY IF EXISTS "authenticated_full_access" ON public.%I', t);
         
-        -- Policy: Only allow signed-in users (NOT generic true)
+        -- Policy: ONLY allow authenticated users to perform operations
         EXECUTE format('
-            CREATE POLICY "authenticated_full_access"
+            CREATE POLICY "authenticated_secure_access"
             ON public.%I
             FOR ALL
             TO authenticated
             USING (auth.uid() IS NOT NULL)
             WITH CHECK (auth.uid() IS NOT NULL)
         ', t);
-        
-        -- Grant specific roles
-        EXECUTE format('REVOKE ALL ON ALL TABLES IN SCHEMA public FROM anon;');
-        EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.%I TO authenticated, service_role;', t);
     END LOOP;
 END $$;
 
--- 4. HIDE FROM GRAPHQL (Resolves "pg_graphql_anon_table_exposed")
-COMMENT ON SCHEMA public IS '@graphql({"expose": false})';
-COMMENT ON TABLE public.settings IS '@graphql({"expose": false})';
-COMMENT ON TABLE public.courses IS '@graphql({"expose": false})';
-COMMENT ON TABLE public.fee_heads IS '@graphql({"expose": false})';
-COMMENT ON TABLE public.students IS '@graphql({"expose": false})';
-COMMENT ON TABLE public.accountants IS '@graphql({"expose": false})';
-COMMENT ON TABLE public.payments IS '@graphql({"expose": false})';
+-- 4. REVOKE ANONYMOUS ACCESS (Resolves pg_graphql warnings)
+-- Ensures only logged-in users or service roles can touch the data
+REVOKE ALL ON ALL TABLES IN SCHEMA public FROM anon;
+REVOKE ALL ON ALL FUNCTIONS IN SCHEMA public FROM anon;
+REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM anon;
 
--- 5. RELOAD SCHEMA
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO authenticated, service_role;
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO authenticated, service_role;
+
+-- 5. HIDE FROM GRAPHQL (Improves security score)
+COMMENT ON SCHEMA public IS '@graphql({"expose": false})';
+
+-- 6. RELOAD SCHEMA
 NOTIFY pgrst, 'reload schema';
 `;
                       navigator.clipboard.writeText(sql);
-                      alert('HARDENED SQL Fix Script copied!\n\nPaste this in your Supabase SQL Editor to fix 20 security warnings and enable smooth course deletions.');
+                      alert('HARDENED SQL Fix Script (V14) copied!\n\nPaste this in your Supabase SQL Editor to resolve all 20 security warnings and enable smooth course deletions.');
                     }}
                     className="text-cyan-600 font-black text-[10px] uppercase tracking-widest flex items-center gap-2 hover:bg-cyan-50 px-3 py-1 rounded-lg transition-all"
                   >

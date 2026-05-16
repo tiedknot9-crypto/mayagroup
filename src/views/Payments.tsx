@@ -20,11 +20,12 @@ export default function Payments({ data, setData, currentStaff }: PaymentsProps)
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [selectedTxn, setSelectedTxn] = useState<Transaction | null>(null);
   const [newTransaction, setNewTransaction] = useState<Partial<Transaction>>({
+    date: new Date().toISOString().split('T')[0],
     studentId: '',
+    transactionId: '',
     amount: 0,
     mode: 'UPI',
     academicTerm: '',
-    transactionId: '',
     remarks: '',
   });
 
@@ -56,7 +57,7 @@ export default function Payments({ data, setData, currentStaff }: PaymentsProps)
         id: crypto.randomUUID(),
         studentId: newTransaction.studentId!,
         amount: Number(newTransaction.amount),
-        date: new Date().toISOString(),
+        date: newTransaction.date ? new Date(newTransaction.date).toISOString() : new Date().toISOString(),
         time: new Date().toLocaleTimeString('en-US', { hour12: false }),
         mode: newTransaction.mode as PaymentMode,
         transactionId: newTransaction.mode === 'Cash' ? undefined : newTransaction.transactionId,
@@ -449,10 +450,9 @@ export default function Payments({ data, setData, currentStaff }: PaymentsProps)
           <table className="w-full text-left">
             <thead>
               <tr className="border-b border-slate-100">
-                <th className="px-8 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest">Receipt / Date</th>
-                <th className="px-8 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest">Student Payer</th>
-                <th className="px-8 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest">Education Details</th>
-                <th className="px-8 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest">Mode / ID</th>
+                <th className="px-8 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest">Receipt Date</th>
+                <th className="px-8 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest">Student</th>
+                <th className="px-8 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest">Transaction ID</th>
                 <th className="px-8 py-5 text-right text-[10px] font-black text-slate-400 uppercase tracking-widest">Amount</th>
                 <th className="px-8 py-5 text-right text-[10px] font-black text-slate-400 uppercase tracking-widest">Action</th>
               </tr>
@@ -468,53 +468,37 @@ export default function Payments({ data, setData, currentStaff }: PaymentsProps)
                   </td>
                 </tr>
               ) : (
-                data.transactions.slice(-10).reverse().map((t) => {
-                  const student = data.students.find(s => s.id === t.studentId);
+                [...data.transactions]
+                  .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+                  .slice(0, 10)
+                  .map((t) => {
+                  const student = data.students.find(s => s.id === t.studentId || s.rollNumber === t.studentId);
                   return (
                     <tr key={t.id} className="border-b border-slate-50 hover:bg-slate-50 transition-colors group">
                       <td className="px-8 py-5">
-                        <p className="text-sm font-bold text-slate-800">{t.receiptNumber}</p>
-                        <p className="text-xs text-slate-400 font-medium">
+                        <p className="text-sm font-bold text-slate-800">
                           {t.date && !isNaN(new Date(t.date).getTime()) 
-                            ? new Date(t.date).toLocaleDateString() 
-                            : 'No Date'}
+                            ? new Date(t.date).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }) 
+                            : 'N/A'}
                         </p>
+                        <p className="text-[9px] text-slate-400 font-mono">{t.receiptNumber}</p>
                       </td>
                       <td className="px-8 py-5">
-                        <p className="text-sm font-bold text-slate-700 truncate max-w-[150px]">
-                          {data.students.find(s => s.id === t.studentId || s.rollNumber === t.studentId)?.name || 'Unknown Student'}
+                        <p className="text-sm font-bold text-emerald-800 truncate max-w-[150px]">
+                          {student?.name || 'Unknown Student'}
                         </p>
                         <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mt-0.5">
-                           Roll: {data.students.find(s => s.id === t.studentId || s.rollNumber === t.studentId)?.rollNumber || 'N/A'}
+                           Roll: {student?.rollNumber || 'N/A'}
                         </p>
                       </td>
                       <td className="px-8 py-5">
-                        {(() => {
-                           const student = data.students.find(s => s.id === t.studentId || s.rollNumber === t.studentId);
-                           if (!student) return <p className="text-xs text-slate-300 italic">Not available</p>;
-                           return (
-                             <div className="space-y-1">
-                               <p className="text-[10px] text-slate-800 font-black uppercase tracking-wider bg-slate-100 px-2 py-0.5 rounded-md inline-block">
-                                 {student.branch}
-                               </p>
-                               <div className="flex gap-2">
-                                 <span className="text-[10px] text-slate-500 font-bold italic">Sem {student.semester}</span>
-                                 <span className="text-[10px] text-slate-500 font-bold">•</span>
-                                 <span className="text-[10px] text-slate-500 font-bold lowercase tracking-normal">{student.session}</span>
-                               </div>
-                             </div>
-                           );
-                        })()}
+                        {t.transactionId ? (
+                           <p className="text-[11px] font-mono font-black text-slate-700 bg-slate-100 px-2 py-1 rounded-md inline-block uppercase tracking-tighter">{t.transactionId}</p>
+                        ) : (
+                           <span className="text-[10px] font-black text-amber-600 bg-amber-50 px-2 py-0.5 rounded uppercase">Cash Payment</span>
+                        )}
                       </td>
-                      <td className="px-8 py-5">
-                        <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider ${
-                          t.mode === 'Cash' ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'
-                        }`}>
-                          {t.mode}
-                        </span>
-                        {t.transactionId && <p className="text-[10px] text-slate-400 font-mono mt-1">{t.transactionId}</p>}
-                      </td>
-                      <td className="px-8 py-5 text-right font-black text-emerald-600">₹{t.amount.toLocaleString()}</td>
+                      <td className="px-8 py-5 text-right font-black text-slate-900 text-base">₹{t.amount.toLocaleString()}</td>
                       <td className="px-8 py-5 text-right flex items-center justify-end gap-2">
                          <button 
                           onClick={() => setSelectedTxn(t)}
@@ -844,8 +828,31 @@ export default function Payments({ data, setData, currentStaff }: PaymentsProps)
 
               <form onSubmit={handleSavePayment} className="flex flex-col h-full overflow-hidden">
                 <div className="p-10 space-y-8 overflow-y-auto custom-scrollbar flex-1">
+                   <div className="grid grid-cols-2 gap-6">
+                    <div>
+                      <label className="block text-[10px] font-black text-slate-600 uppercase tracking-widest mb-3 ml-1">Receipt Date</label>
+                      <input 
+                        required
+                        type="date" 
+                        className="w-full bg-white border-2 border-slate-200 rounded-2xl px-6 py-4 outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 font-bold text-slate-800 shadow-sm"
+                        value={newTransaction.date}
+                        onChange={(e) => setNewTransaction({...newTransaction, date: e.target.value})}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-black text-slate-600 uppercase tracking-widest mb-3 ml-1">Academic Term</label>
+                      <input 
+                        type="text" 
+                        placeholder="e.g. Sem IV" 
+                        className="w-full bg-white border-2 border-slate-200 rounded-2xl px-6 py-4 outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 font-bold text-slate-800 shadow-sm"
+                        value={newTransaction.academicTerm}
+                        onChange={(e) => setNewTransaction({...newTransaction, academicTerm: e.target.value})}
+                      />
+                    </div>
+                  </div>
+
                   <div>
-                    <label className="block text-[10px] font-black text-slate-600 uppercase tracking-widest mb-3 ml-1">Student Directory</label>
+                    <label className="block text-[10px] font-black text-slate-600 uppercase tracking-widest mb-3 ml-1">Student</label>
                     <select 
                       required
                       className="w-full bg-white border-2 border-slate-200 rounded-2xl px-6 py-4 outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 font-bold text-slate-800 shadow-sm transition-all"
@@ -899,26 +906,37 @@ export default function Payments({ data, setData, currentStaff }: PaymentsProps)
                     })()}
                   </div>
 
-                  <div className="grid grid-cols-2 gap-6">
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-600 uppercase tracking-widest mb-3 ml-1">Transaction ID</label>
+                    <input 
+                      required={newTransaction.mode !== 'Cash'}
+                      disabled={newTransaction.mode === 'Cash'}
+                      type="text" 
+                      placeholder={newTransaction.mode === 'Cash' ? 'N/A' : 'Enter UTR / Ref No.'}
+                      className={`w-full bg-white border-2 border-slate-200 rounded-2xl px-6 py-4 outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 font-mono uppercase text-sm font-bold text-slate-800 shadow-sm ${
+                        newTransaction.mode === 'Cash' ? 'opacity-50 grayscale cursor-not-allowed bg-slate-50 border-slate-100' : ''
+                      }`}
+                      value={newTransaction.transactionId}
+                      onChange={(e) => setNewTransaction({...newTransaction, transactionId: e.target.value})}
+                    />
+                    {newTransaction.mode !== 'Cash' && (
+                      <div className="flex items-center gap-2 mt-3 text-rose-600">
+                        <AlertTriangle size={14} />
+                        <p className="text-[10px] font-black uppercase tracking-wider">Duplicate ID check active</p>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-6">
                     <div>
                       <label className="block text-[10px] font-black text-slate-600 uppercase tracking-widest mb-3 ml-1">Amount (₹)</label>
                       <input 
                         required
                         type="number" 
                         placeholder="0.00" 
-                        className="w-full bg-white border-2 border-slate-200 rounded-2xl px-6 py-4 outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 font-black text-slate-800 shadow-sm"
+                        className="w-full bg-white border-2 border-slate-200 rounded-2xl px-6 py-4 outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 font-black text-slate-800 shadow-sm text-2xl"
                         value={newTransaction.amount || ''}
                         onChange={(e) => setNewTransaction({...newTransaction, amount: Number(e.target.value)})}
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-[10px] font-black text-slate-600 uppercase tracking-widest mb-3 ml-1">Academic Term</label>
-                      <input 
-                        type="text" 
-                        placeholder="e.g. Sem IV" 
-                        className="w-full bg-white border-2 border-slate-200 rounded-2xl px-6 py-4 outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 font-bold text-slate-800 shadow-sm"
-                        value={newTransaction.academicTerm}
-                        onChange={(e) => setNewTransaction({...newTransaction, academicTerm: e.target.value})}
                       />
                     </div>
                   </div>
@@ -941,27 +959,6 @@ export default function Payments({ data, setData, currentStaff }: PaymentsProps)
                         </button>
                       ))}
                     </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-[10px] font-black text-slate-600 uppercase tracking-widest mb-3 ml-1">Transaction ID</label>
-                    <input 
-                      required={newTransaction.mode !== 'Cash'}
-                      disabled={newTransaction.mode === 'Cash'}
-                      type="text" 
-                      placeholder={newTransaction.mode === 'Cash' ? 'N/A' : 'Enter UTR / Ref No.'}
-                      className={`w-full bg-white border-2 border-slate-200 rounded-2xl px-6 py-4 outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 font-mono uppercase text-sm font-bold text-slate-800 shadow-sm ${
-                        newTransaction.mode === 'Cash' ? 'opacity-50 grayscale cursor-not-allowed bg-slate-50 border-slate-100' : ''
-                      }`}
-                      value={newTransaction.transactionId}
-                      onChange={(e) => setNewTransaction({...newTransaction, transactionId: e.target.value})}
-                    />
-                    {newTransaction.mode !== 'Cash' && (
-                      <div className="flex items-center gap-2 mt-3 text-rose-600">
-                        <AlertTriangle size={14} />
-                        <p className="text-[10px] font-black uppercase tracking-wider">Duplicate ID check active</p>
-                      </div>
-                    )}
                   </div>
 
                   <div>
