@@ -57,8 +57,16 @@ export default function App() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [lastSynced, setLastSynced] = useState<Date | null>(null);
   const [dbStatus, setDbStatus] = useState<'connected' | 'disconnected' | 'error'>('disconnected');
+  const [lastLocalWrite, setLastLocalWrite] = useState<number>(0);
 
   const loadFromDb = useCallback(async (showIndicator = true) => {
+    // Sync Guard: If we JUST wrote data locally (in the last 10s), 
+    // ignore background syncs to prevent overwriting local state with stale cloud data.
+    if (!showIndicator && Date.now() - lastLocalWrite < 10000) {
+      console.log('[Supabase] Sync ignored: Protected by local write lock.');
+      return;
+    }
+
     if (showIndicator) setIsRefreshing(true);
     try {
       const dbDataPromise = supabaseService.fetchAppData();
@@ -93,10 +101,22 @@ export default function App() {
           }
         });
 
+        // Merge Fee Plans (Courses)
+        const mergedPlans = [...dbData.feePlans];
+        const dbPlanIds = new Set(dbData.feePlans.map(p => p.id));
+        data.feePlans.forEach(localPlan => {
+          if (!dbPlanIds.has(localPlan.id)) {
+            mergedPlans.push(localPlan);
+          }
+        });
+
         const finalData = {
           ...dbData,
           students: mergedStudents,
-          transactions: mergedTxns
+          transactions: mergedTxns,
+          feePlans: mergedPlans,
+          // Keep local masters if cloud returned none (safety)
+          masters: dbData.masters.branches.length > 0 ? dbData.masters : data.masters
         };
 
         // Detect if any table failed with 42501 (Empty results + log signature)
@@ -244,6 +264,11 @@ export default function App() {
     localStorage.setItem('maya_fee_data', JSON.stringify(data));
   }, [data]);
 
+  const updateDataWithLock = (updater: (prev: AppData) => AppData) => {
+    setLastLocalWrite(Date.now());
+    setData(updater);
+  };
+
   const handleLogin = (staffId: string, pin: string) => {
     const staffMember = data.staff.find(s => s.id === staffId && s.pin === pin);
     if (staffMember) {
@@ -293,11 +318,11 @@ export default function App() {
   const renderView = () => {
     switch (activeView) {
       case 'dashboard': return <Dashboard data={data} />;
-      case 'plans': return <FeePlans data={data} setData={setData} setIsRefreshing={setIsRefreshing} />;
-      case 'students': return <Students data={data} setData={setData} />;
-      case 'payments': return <Payments data={data} setData={setData} currentStaff={currentStaff} />;
-      case 'reports': return <Reports data={data} setData={setData} />;
-      case 'settings': return <SettingsView data={data} setData={setData} />;
+      case 'plans': return <FeePlans data={data} setData={updateDataWithLock} setIsRefreshing={setIsRefreshing} />;
+      case 'students': return <Students data={data} setData={updateDataWithLock} />;
+      case 'payments': return <Payments data={data} setData={updateDataWithLock} currentStaff={currentStaff} />;
+      case 'reports': return <Reports data={data} setData={updateDataWithLock} />;
+      case 'settings': return <SettingsView data={data} setData={updateDataWithLock} />;
       default: return <Dashboard data={data} />;
     }
   };
