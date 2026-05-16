@@ -91,33 +91,38 @@ export default function App() {
       if (dbData) {
         console.log(`[Supabase] Sync successful: ${dbData.students.length} students, ${dbData.transactions.length} transactions fetched.`);
         
-        // Refined sync: Merge students and transactions to prevent data loss
-        // We prioritize DB records for records with the same ID, but keep local-only records
+        // Refined sync: Merge students, transactions, and plans using business keys (Roll Number, Name, Receipt)
+        // to prevent duplication when IDs are mismatched.
+        
+        // 1. Merge Students
         const mergedStudents = [...dbData.students];
+        const dbRollNumbers = new Set(dbData.students.map(s => s.rollNumber.toUpperCase()));
         const dbStudentIds = new Set(dbData.students.map(s => s.id));
         
         data.students.forEach(localStudent => {
-          if (!dbStudentIds.has(localStudent.id)) {
-            // Local student not yet in cloud - keep them
+          const rollKey = localStudent.rollNumber.toUpperCase();
+          if (!dbStudentIds.has(localStudent.id) && rollKey && !dbRollNumbers.has(rollKey)) {
             mergedStudents.push(localStudent);
           }
         });
 
+        // 2. Merge Transactions
         const mergedTxns = [...dbData.transactions];
-        const dbTxnReceipts = new Set(dbData.transactions.map(t => t.receiptNumber));
+        const dbTxnReceipts = new Set(dbData.transactions.map(t => t.receiptNumber.toUpperCase()));
         
         data.transactions.forEach(localTxn => {
-          if (!dbTxnReceipts.has(localTxn.receiptNumber)) {
-            // Local txn not yet in cloud - keep them
+          if (!dbTxnReceipts.has(localTxn.receiptNumber.toUpperCase())) {
             mergedTxns.push(localTxn);
           }
         });
 
-        // Merge Fee Plans (Courses)
+        // 3. Merge Fee Plans (Courses)
         const mergedPlans = [...dbData.feePlans];
+        const dbPlanNames = new Set(dbData.feePlans.map(p => p.name.toUpperCase()));
         const dbPlanIds = new Set(dbData.feePlans.map(p => p.id));
+        
         data.feePlans.forEach(localPlan => {
-          if (!dbPlanIds.has(localPlan.id)) {
+          if (!dbPlanIds.has(localPlan.id) && !dbPlanNames.has(localPlan.name.toUpperCase())) {
             mergedPlans.push(localPlan);
           }
         });

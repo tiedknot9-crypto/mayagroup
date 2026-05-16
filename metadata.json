@@ -1,6 +1,8 @@
 {
-  "name": "Remix: Remix: Maya Fee Manager",
+  "name": "Maya Fee Manager",
   "description": "Professional fee management software for Maya Group of Institutions with student tracking, automated fee collection, duplicate transaction detection, and reporting.",
   "requestFramePermissions": [],
-  "majorCapabilities": []
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
 }

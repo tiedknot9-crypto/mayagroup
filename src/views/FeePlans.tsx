@@ -31,7 +31,7 @@ export default function FeePlans({ data, setData, setIsRefreshing }: FeePlansPro
       setNewPlan(prev => ({
         ...prev,
         components: [...(prev.components || []), {
-          id: Math.random().toString(36).substr(2, 9),
+          id: crypto.randomUUID(),
           name: currentComponent.base === 'Base' ? currentComponent.name : `${currentComponent.name} (${currentComponent.base})`,
           amount: Number(currentComponent.amount)
         }]
@@ -76,7 +76,7 @@ export default function FeePlans({ data, setData, setIsRefreshing }: FeePlansPro
         }));
       } else {
         finalPlan = {
-          id: Math.random().toString(36).substr(2, 9),
+          id: crypto.randomUUID(),
           name: newPlan.name,
           frequency: newPlan.frequency as 'Semester' | 'Yearly',
           components: newPlan.components,
@@ -89,7 +89,21 @@ export default function FeePlans({ data, setData, setIsRefreshing }: FeePlansPro
       }
 
       // Sync to Supabase
-      await supabaseService.saveFeePlan(finalPlan);
+      const savedPlan = await supabaseService.saveFeePlan(finalPlan);
+      
+      if (savedPlan) {
+        // Update local state WITH the real Database ID if it changed
+        setData(prev => ({
+          ...prev,
+          feePlans: prev.feePlans.map(p => 
+            p.id === finalPlan.id ? savedPlan : p
+          ),
+          // CRITICAL: Re-link students pointing to the temporary/old ID
+          students: prev.students.map(s => 
+            s.planId === finalPlan.id ? { ...s, planId: savedPlan.id } : s
+          )
+        }));
+      }
 
       resetModal();
     }
@@ -105,58 +119,64 @@ export default function FeePlans({ data, setData, setIsRefreshing }: FeePlansPro
     try {
       if (setIsRefreshing) setIsRefreshing(true);
       
-      // 1. Force check the cloud for ANY student dependencies
-      const { data: cloudStudents, error: checkError } = await supabase
-        .from('students')
-        .select('id, name')
-        .eq('course_id', id);
+      // Validation: If it's not a UUID, it's not in Supabase yet or it's a local draft ID
+      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
       
-      if (checkError) throw new Error(`Connectivity check failed: ${checkError.message}`);
-      
-      const affectedCount = cloudStudents?.length || 0;
-      
-      if (affectedCount > 0) {
-        // Find a fallback plan (other than the one we're deleting)
-        const fallbackPlan = data.feePlans.find(p => p.id !== id);
+      if (isUuid) {
+        // 1. Force check the cloud for ANY student dependencies
+        const { data: cloudStudents, error: checkError } = await supabase
+          .from('students')
+          .select('id, name')
+          .eq('course_id', id);
         
-        if (!fallbackPlan) {
-          alert(`CRITICAL: Cannot delete. ${affectedCount} student(s) are enrolled in this plan, and no other plans exist. Please create a new plan first.`);
-          return;
+        if (checkError) throw new Error(`Connectivity check failed: ${checkError.message}`);
+        
+        const affectedCount = cloudStudents?.length || 0;
+        
+        if (affectedCount > 0) {
+          // Find a fallback plan (other than the one we're deleting)
+          const fallbackPlan = data.feePlans.find(p => p.id !== id);
+          
+          if (!fallbackPlan || !supabaseService.isValidUuid(fallbackPlan.id)) {
+            alert(`CRITICAL: Cannot delete. ${affectedCount} student(s) are enrolled in this plan, and no other valid cloud-synced plans exist. Please create a new plan first.`);
+            return;
+          }
+
+          const confirmMove = window.confirm(
+            `FOREIGN KEY PROTECTED: ${affectedCount} student(s) are still linked to this plan in the database.\n\n` +
+            `Would you like to automatically RE-ASSIGN them to the "${fallbackPlan.name}" plan so this structure can be deleted?`
+          );
+
+          if (!confirmMove) return;
+
+          // Execute migration in cloud
+          const { error: moveError } = await supabase
+            .from('students')
+            .update({ course_id: fallbackPlan.id })
+            .eq('course_id', id);
+
+          if (moveError) throw new Error(`Migration failed: ${moveError.message}`);
+
+          // Update local state for students
+          setData(prev => ({
+            ...prev,
+            students: prev.students.map(s => s.planId === id ? { ...s, planId: fallbackPlan.id } : s)
+          }));
+          
+          console.log(`[Supabase] Migrated ${affectedCount} students to ${fallbackPlan.name}`);
         }
 
-        const confirmMove = window.confirm(
-          `FOREIGN KEY PROTECTED: ${affectedCount} student(s) are still linked to this plan in the database.\n\n` +
-          `Would you like to automatically RE-ASSIGN them to the "${fallbackPlan.name}" plan so this structure can be deleted?`
-        );
-
-        if (!confirmMove) return;
-
-        // Execute migration in cloud
-        const { error: moveError } = await supabase
-          .from('students')
-          .update({ course_id: fallbackPlan.id })
-          .eq('course_id', id);
-
-        if (moveError) throw new Error(`Migration failed: ${moveError.message}`);
-
-        // Update local state for students
-        setData(prev => ({
-          ...prev,
-          students: prev.students.map(s => s.planId === id ? { ...s, planId: fallbackPlan.id } : s)
-        }));
-        
-        console.log(`[Supabase] Migrated ${affectedCount} students to ${fallbackPlan.name}`);
+        // 2. Clear associated fee_heads first
+        await supabase.from('fee_heads').delete().eq('course_id', id);
       }
-
-      // 2. Clear associated fee_heads first (though SQL has ON DELETE CASCADE, explicit clear is safer for UI sync)
-      await supabase.from('fee_heads').delete().eq('course_id', id);
 
       // 3. Final Deletion
       if (window.confirm('Are you sure? This plan structure will be permanently removed.')) {
-        const { error: deleteError } = await supabase.from('courses').delete().eq('id', id);
-        
-        if (deleteError) {
-          throw new Error(`Deletion failed: ${deleteError.message}. There might be hidden payment dependencies.`);
+        if (isUuid) {
+          const { error: deleteError } = await supabase.from('courses').delete().eq('id', id);
+          if (deleteError) {
+            throw new Error(`Deletion failed: ${deleteError.message}. There might be hidden payment dependencies.`);
+          }
         }
 
         // Update local state

@@ -15,6 +15,10 @@ export const supabaseService = {
     }
   },
 
+  isValidUuid(uuid: string) {
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(uuid);
+  },
+
   async fetchAppData(): Promise<AppData | null> {
     try {
       // Diagnostic check: verify tables exist
@@ -295,31 +299,45 @@ export const supabaseService = {
   async bulkSaveTransactions(txns: Transaction[]) {
     // Transactions need the student's DB UUID. 
     // We also filter out any invalid dates to prevent "Invalid time value" errors.
-    const dbTxns = txns
-      .filter(txn => {
-        try {
-          const d = new Date(txn.date);
-          return !isNaN(d.getTime());
-        } catch {
-          return false;
+    const dbTxns = [];
+    
+    for (const txn of txns) {
+      try {
+        const d = new Date(txn.date);
+        if (isNaN(d.getTime())) continue;
+
+        let finalStudentId = txn.studentId;
+        if (!this.isValidUuid(finalStudentId)) {
+          // If rollNumber was passed as studentId (common in manual imports)
+          const { data: sData } = await supabase.from('students').select('id').eq('roll_number', txn.studentId).single();
+          if (sData) {
+            finalStudentId = sData.id;
+          } else {
+            console.warn(`[Supabase] Skipping transaction for unknown student roll/ID: ${txn.studentId}`);
+            continue;
+          }
         }
-      })
-      .map(txn => ({
-        student_id: txn.studentId, 
-        amount: txn.amount,
-        payment_date: new Date(txn.date).toISOString(),
-        time: txn.time || '00:00:00',
-        payment_method: txn.mode,
-        receipt_number: txn.receiptNumber,
-        transaction_id: txn.transactionId || null,
-        session_id: txn.academicTerm,
-        remarks: txn.remarks,
-        fee_head_ids: txn.feeHeadIds,
-        collected_by: txn.collectedBy,
-        is_edited: txn.isEdited,
-        edited_by: txn.editedBy,
-        edit_reason: txn.editReason,
-      }));
+
+        dbTxns.push({
+          student_id: finalStudentId, 
+          amount: txn.amount,
+          payment_date: d.toISOString(),
+          time: txn.time || '00:00:00',
+          payment_method: txn.mode,
+          receipt_number: txn.receiptNumber,
+          transaction_id: txn.transactionId || null,
+          session_id: txn.academicTerm,
+          remarks: txn.remarks,
+          fee_head_ids: txn.feeHeadIds,
+          collected_by: txn.collectedBy,
+          is_edited: txn.isEdited,
+          edited_by: txn.editedBy,
+          edit_reason: txn.editReason,
+        });
+      } catch (e) {
+        console.error('Error processing transaction for bulk save:', txn, e);
+      }
+    }
 
     if (dbTxns.length === 0) return;
 
@@ -398,23 +416,43 @@ export const supabaseService = {
     }
   },
 
-  async saveFeePlan(plan: FeePlan) {
+  async saveFeePlan(plan: FeePlan): Promise<FeePlan | null> {
     const { data: course, error: cError } = await supabase.from('courses').upsert({
       course_name: plan.name,
       frequency: plan.frequency,
       total_amount: plan.totalAmount
     }, { onConflict: 'course_name' }).select().single();
 
-    if (cError || !course) return;
+    if (cError || !course) {
+      console.error('Error saving fee plan:', cError);
+      return null;
+    }
 
     // Save components
+    const finalComponents: any[] = [];
     for (const comp of plan.components) {
-      await supabase.from('fee_heads').upsert({
+      const { data: head } = await supabase.from('fee_heads').upsert({
         course_id: course.id,
         name: comp.name,
         amount: comp.amount,
         type: 'Base'
-      }, { onConflict: 'course_id,name' });
+      }, { onConflict: 'course_id,name' }).select().single();
+      
+      if (head) {
+        finalComponents.push({
+          id: head.id,
+          name: head.name,
+          amount: Number(head.amount)
+        });
+      }
     }
+
+    return {
+      id: course.id,
+      name: course.course_name,
+      frequency: course.frequency as any,
+      totalAmount: Number(course.total_amount),
+      components: finalComponents.length > 0 ? finalComponents : plan.components
+    };
   }
 };
