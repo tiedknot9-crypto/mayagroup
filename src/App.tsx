@@ -89,66 +89,65 @@ export default function App() {
       }
       
       if (dbData) {
-        console.log(`[Supabase] Sync successful: ${dbData.students.length} students, ${dbData.transactions.length} transactions fetched.`);
+        console.log(`[Supabase] Cloud Fetch: ${dbData.students.length} students, ${dbData.transactions.length} transactions, ${dbData.feePlans.length} plans.`);
         
-        // Refined sync: Merge students, transactions, and plans using business keys (Roll Number, Name, Receipt)
-        // to prevent duplication when IDs are mismatched.
-        
-        // 1. Merge Students
-        const mergedStudents = [...dbData.students];
-        const dbRollNumbers = new Set(dbData.students.map(s => s.rollNumber.toUpperCase()));
-        const dbStudentIds = new Set(dbData.students.map(s => s.id));
-        
-        data.students.forEach(localStudent => {
-          const rollKey = localStudent.rollNumber.toUpperCase();
-          if (!dbStudentIds.has(localStudent.id) && rollKey && !dbRollNumbers.has(rollKey)) {
-            mergedStudents.push(localStudent);
+        setData(prevData => {
+          // Refined sync: Merge students, transactions, and plans using business keys
+          
+          // 1. Merge Students
+          const mergedStudents = [...dbData.students];
+          const dbRollNumbers = new Set(dbData.students.map(s => s.rollNumber.toUpperCase()));
+          const dbStudentIds = new Set(dbData.students.map(s => s.id));
+          
+          prevData.students.forEach(localStudent => {
+            const rollKey = localStudent.rollNumber.toUpperCase();
+            // Only keep local student if they are truly unique (not in DB by ID or Roll Number)
+            if (!dbStudentIds.has(localStudent.id) && rollKey && !dbRollNumbers.has(rollKey)) {
+              mergedStudents.push(localStudent);
+            }
+          });
+
+          // 2. Merge Transactions
+          const mergedTxns = [...dbData.transactions];
+          const dbTxnReceipts = new Set(dbData.transactions.map(t => t.receiptNumber.toUpperCase()));
+          const dbTxnIds = new Set(dbData.transactions.map(t => t.id));
+          
+          prevData.transactions.forEach(localTxn => {
+            if (!dbTxnIds.has(localTxn.id) && !dbTxnReceipts.has(localTxn.receiptNumber.toUpperCase())) {
+              mergedTxns.push(localTxn);
+            }
+          });
+
+          // 3. Merge Fee Plans (Courses)
+          const mergedPlans = [...dbData.feePlans];
+          const dbPlanNames = new Set(dbData.feePlans.map(p => p.name.toUpperCase()));
+          const dbPlanIds = new Set(dbData.feePlans.map(p => p.id));
+          
+          prevData.feePlans.forEach(localPlan => {
+            if (!dbPlanIds.has(localPlan.id) && !dbPlanNames.has(localPlan.name.toUpperCase())) {
+              mergedPlans.push(localPlan);
+            }
+          });
+
+          const finalData = {
+            ...dbData,
+            students: mergedStudents,
+            transactions: mergedTxns,
+            feePlans: mergedPlans,
+            masters: dbData.masters.branches.length > 0 ? dbData.masters : prevData.masters
+          };
+
+          // Ensure default admin
+          const adminIndex = finalData.staff.findIndex(s => s.id === 'admin');
+          if (adminIndex === -1) {
+            finalData.staff.push(INITIAL_DATA.staff[0]);
+          } else {
+            finalData.staff[adminIndex].pin = INITIAL_DATA.staff[0].pin;
           }
+          
+          return finalData;
         });
 
-        // 2. Merge Transactions
-        const mergedTxns = [...dbData.transactions];
-        const dbTxnReceipts = new Set(dbData.transactions.map(t => t.receiptNumber.toUpperCase()));
-        
-        data.transactions.forEach(localTxn => {
-          if (!dbTxnReceipts.has(localTxn.receiptNumber.toUpperCase())) {
-            mergedTxns.push(localTxn);
-          }
-        });
-
-        // 3. Merge Fee Plans (Courses)
-        const mergedPlans = [...dbData.feePlans];
-        const dbPlanNames = new Set(dbData.feePlans.map(p => p.name.toUpperCase()));
-        const dbPlanIds = new Set(dbData.feePlans.map(p => p.id));
-        
-        data.feePlans.forEach(localPlan => {
-          if (!dbPlanIds.has(localPlan.id) && !dbPlanNames.has(localPlan.name.toUpperCase())) {
-            mergedPlans.push(localPlan);
-          }
-        });
-
-        const finalData = {
-          ...dbData,
-          students: mergedStudents,
-          transactions: mergedTxns,
-          feePlans: mergedPlans,
-          // Keep local masters if cloud returned none (safety)
-          masters: dbData.masters.branches.length > 0 ? dbData.masters : data.masters
-        };
-
-        // Detect if any table failed with 42501 (Empty results + log signature)
-        // We look for the console error log signature or specific table patterns
-        // Since fetchAppData returns partial data on error, we check if mission-critical tables are missing
-        
-        // Ensure default admin always exists and has the requested credentials
-        const adminIndex = finalData.staff.findIndex(s => s.id === 'admin');
-        if (adminIndex === -1) {
-          finalData.staff.push(INITIAL_DATA.staff[0]);
-        } else {
-          // Always ensure the main admin has the requested PIN
-          finalData.staff[adminIndex].pin = INITIAL_DATA.staff[0].pin;
-        }
-        setData(finalData);
         setDbStatus('connected');
         setLastSynced(new Date());
       } else {
@@ -162,7 +161,7 @@ export default function App() {
       if (showIndicator) setIsRefreshing(false);
       setIsLoading(false);
     }
-  }, []);
+  }, [lastLocalWrite]);
 
   // Supabase Load & Realtime Subscriptions
   useEffect(() => {

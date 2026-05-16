@@ -85,6 +85,13 @@ export const supabaseService = {
       const hasPermissionError = [settingsRes, coursesRes, studentsRes, paymentsRes, staffRes].some(r => r.error?.code === '42501');
       const hasConnectionError = [settingsRes, coursesRes, studentsRes, paymentsRes, staffRes].some(r => r.error && r.error.code !== 'PGRST116' && r.error.code !== '42501');
 
+      console.group('[Supabase Diagnostic]');
+      console.log('Courses:', (coursesData || []).length, coursesRes.error);
+      console.log('Students:', (studentsData || []).length, studentsRes.error);
+      console.log('Payments:', (paymentsData || []).length, paymentsRes.error);
+      console.log('Staff:', (staffData || []).length, staffRes.error);
+      console.groupEnd();
+
       // If we have no data at all and encountered errors that aren't just "missing rows"
       if (!settingsData && (!studentsData || studentsData.length === 0) && (!staffData || staffData.length === 0)) {
         if (hasPermissionError) {

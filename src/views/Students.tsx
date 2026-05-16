@@ -67,6 +67,17 @@ export default function Students({ data, setData }: StudentsProps) {
   const handleEnroll = async (e: React.FormEvent) => {
     e.preventDefault();
     if (newStudent.name && newStudent.planId && newStudent.rollNumber) {
+      // Check for Roll Number collisions (Case Insensitive)
+      const isDuplicate = data.students.some(s => 
+        s.rollNumber.trim().toUpperCase() === newStudent.rollNumber?.trim().toUpperCase() && 
+        (!editingStudent || s.id !== editingStudent.id)
+      );
+
+      if (isDuplicate) {
+        alert(`CRITICAL DUPLICATION: Roll Number "${newStudent.rollNumber}" is already assigned to another student.\n\nPlease use a unique identifier.`);
+        return;
+      }
+
       let finalStudent: Student;
       if (editingStudent) {
         finalStudent = { ...editingStudent, ...(newStudent as Student) };
