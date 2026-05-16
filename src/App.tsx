@@ -56,7 +56,7 @@ export default function App() {
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [lastSynced, setLastSynced] = useState<Date | null>(null);
-  const [dbStatus, setDbStatus] = useState<'connected' | 'disconnected' | 'error'>('disconnected');
+  const [dbStatus, setDbStatus] = useState<'connected' | 'disconnected' | 'error' | 'tables_missing'>('disconnected');
   const [lastLocalWrite, setLastLocalWrite] = useState<number>(0);
 
   const loadFromDb = useCallback(async (showIndicator = true) => {
@@ -75,6 +75,18 @@ export default function App() {
       );
 
       const dbData = await Promise.race([dbDataPromise, timeoutPromise]);
+
+      if (dbData === null) {
+        // Double check if it's a tables missing error
+        const health = await supabaseService.checkHealth();
+        if (!health.tablesExist) {
+          setDbStatus('tables_missing');
+          console.warn('[Supabase] Sync failed: Database tables do not exist.');
+        } else {
+          setDbStatus('disconnected');
+        }
+        return;
+      }
       
       if (dbData) {
         console.log(`[Supabase] Sync successful: ${dbData.students.length} students, ${dbData.transactions.length} transactions fetched.`);
@@ -430,8 +442,16 @@ export default function App() {
             </button>
             <div className="flex flex-col items-end">
               <div className="flex items-center gap-2">
-                <div className={`w-2 h-2 rounded-full ${dbStatus === 'connected' ? 'bg-emerald-500 animate-pulse' : 'bg-red-500'}`}></div>
-                <span className="text-sm font-bold uppercase tracking-tight">Cloud Node</span>
+                <div className={`w-2 h-2 rounded-full ${
+                  dbStatus === 'connected' ? 'bg-emerald-500 animate-pulse' : 
+                  dbStatus === 'tables_missing' ? 'bg-orange-500' : 
+                  'bg-red-500'
+                }`}></div>
+                <span className="text-sm font-bold uppercase tracking-tight">
+                  {dbStatus === 'connected' ? 'Cloud Node' : 
+                   dbStatus === 'tables_missing' ? 'Setup Required' : 
+                   'Disconnected'}
+                </span>
               </div>
               <span className="text-[9px] text-slate-400 font-black uppercase tracking-widest leading-none mt-1">
                 {lastSynced ? `Sync: ${lastSynced.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : 'Supabase Connected'}

@@ -2,20 +2,38 @@ import { supabase } from '../lib/supabase';
 import { AppData, Student, Transaction, FeePlan, Staff } from '../types';
 
 export const supabaseService = {
+  async checkHealth() {
+    try {
+      const { data, error } = await supabase.from('settings').select('count', { count: 'exact', head: true });
+      return {
+        connected: !error || error.code !== 'PGRST116',
+        tablesExist: error?.code !== '42P01',
+        error: error ? `${error.code}: ${error.message}` : null
+      };
+    } catch (err) {
+      return { connected: false, tablesExist: false, error: String(err) };
+    }
+  },
+
   async fetchAppData(): Promise<AppData | null> {
     try {
-      // Use Promise.all with individual error handling to prevent one failing query from killing the whole load
+      // Diagnostic check: verify tables exist
+      const { error: healthError } = await supabase.from('settings').select('count', { count: 'exact', head: true });
+      if (healthError && healthError.code === '42P01') {
+        console.error('[Supabase] CRITICAL: Tables NOT FOUND. Please run the SQL Fix Script in Supabase Editor.');
+        return null;
+      }
       const [settingsRes, coursesRes, studentsRes, paymentsRes, staffRes] = await Promise.all([
         supabase.from('settings').select('*').single(),
         supabase.from('courses').select('*, fee_heads(*)'),
         supabase.from('students').select('*'),
-        supabase.from('payments').select('*').order('date', { ascending: false }).order('time', { ascending: false }),
+        supabase.from('payments').select('*').order('payment_date', { ascending: false }),
         supabase.from('accountants').select('*')
       ]);
 
       if (settingsRes.error && settingsRes.error.code !== 'PGRST116') {
         if (settingsRes.error.code === '42501') {
-          console.info('[Supabase] Permission denied for "settings" table. RLS may be enabled without appropriate "anon" policies.');
+          console.info('[Supabase] Permission denied for "settings" table. You likely executed the V15/V17 script without enabling Anon Auth or forgot to GRANT access to anon role.');
         } else {
           console.warn('Settings fetch error:', settingsRes.error);
         }
@@ -117,7 +135,7 @@ export const supabaseService = {
           id: p.id,
           studentId: p.student_id,
           amount: Number(p.amount),
-          date: p.date || new Date().toISOString(),
+          date: p.payment_date || new Date().toISOString(),
           time: p.time || '',
           mode: p.payment_method as any,
           transactionId: p.transaction_id || undefined,
@@ -194,7 +212,7 @@ export const supabaseService = {
     const { error } = await supabase.from('payments').upsert({
       student_id: finalStudentId,
       amount: txn.amount,
-      date: txn.date,
+      payment_date: txn.date,
       time: txn.time,
       payment_method: txn.mode,
       receipt_number: txn.receiptNumber,
@@ -289,7 +307,7 @@ export const supabaseService = {
       .map(txn => ({
         student_id: txn.studentId, 
         amount: txn.amount,
-        date: new Date(txn.date).toISOString(),
+        payment_date: new Date(txn.date).toISOString(),
         time: txn.time || '00:00:00',
         payment_method: txn.mode,
         receipt_number: txn.receiptNumber,
